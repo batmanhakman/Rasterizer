@@ -10,14 +10,16 @@ class Framebuffer
     ~Framebuffer();
 
     // get dimensions
-    int GetWidth() const {return width};
-    int GetHeight() const {return height};
+    int GetWidth() const {return width; }
+    int GetHeight() const {return height; }
 
 
 
 
     // Get the pixels and color and store it
     uint32_t GetPixel(int x, int y) const;
+    
+    uint32_t* GetBuffer() const;
 
     // Set the pixels
     void SetPixel(int x, int y, uint32_t color);

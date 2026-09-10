@@ -30,17 +30,13 @@ void Framebuffer::SetPixel(int x, int y, uint32_t color)
     }
 }
 
-int Framebuffer::GetWidth()
+
+uint32_t* Framebuffer::GetBuffer() const
 {
-    return width;
+    return pixels;
 }
 
-int Framebuffer::GetHeight()
-{
-    return height;
-}
-
-uint32_t Framebuffer::GetPixel(int x, int y)
+uint32_t Framebuffer::GetPixel(int x, int y) const
 {
     if (x >= 0 && x < width && y >= 0 && y < height)
     {

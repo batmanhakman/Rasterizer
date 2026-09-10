@@ -13,10 +13,20 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
         return 0;
     }
 
+    RECT rect;
+    GetClientRect(hwnd, &rect);
 
-    Framebuffer::Framebuffer(int width, int height);
+    int width = rect.right - rect.left;
+    int height = rect.bottom - rect.top;
 
+    Framebuffer fb(width, height);
 
+    SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&fb));
+
+    uint32_t color = 0x00FF0000;
+    Rasterizer::LineDraw(fb, 100, 100, 500, 300, color);
+
+    InvalidateRect(hwnd, NULL, TRUE);
 
     // Run Message loop
     MSG msg = { };
