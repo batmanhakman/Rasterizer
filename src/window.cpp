@@ -8,8 +8,7 @@
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
-// Updated signature to take pFramebuffer
-HWND InitWindow(HINSTANCE hInstance, int nCmdShow, Framebuffer* pFramebuffer)
+HWND InitWindow(HINSTANCE hInstance, int nCmdShow)
 {
     // Register the window class
     const wchar_t CLASS_NAME[] = L"DefaultProgramName";
@@ -38,8 +37,8 @@ HWND InitWindow(HINSTANCE hInstance, int nCmdShow, Framebuffer* pFramebuffer)
         1080,                // Height
         NULL, 
         NULL, 
-        hInstance, 
-        pFramebuffer         // Passed pointer as lpParam 
+        hInstance,
+        nullptr
     );
 
     ShowWindow(hwnd, nCmdShow);
