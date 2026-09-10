@@ -1,6 +1,8 @@
 #include "Rasterizer.h"
 #include <cmath>
 
+// COMMENT!!!!!
+
 void Rasterizer::LineDraw(Framebuffer& fb, int x0, int y0, int x1, int y1, uint32_t color)
 {
     // Distance formula (dx = delta of x and dy = delta of y)
