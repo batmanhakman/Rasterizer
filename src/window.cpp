@@ -86,8 +86,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 bmi.bmiHeader.biCompression = BI_RGB;
 
                 StretchDIBits(
+                    // Copy the framebuffer's pixel array onto the window.
+                    // This is where our software-rendered image becomes visible.
                     hdc,
-                    0, 0, pFb->GetWidth(), pFb->GetHeight(),
+                    0, 0, pFb->GetWidth(), pFb->GetHeight(), // Give the height and width to the pointer.
                     0, 0, pFb->GetWidth(), pFb->GetHeight(),
                     pFb->GetBuffer(),
                     &bmi,
