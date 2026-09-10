@@ -3,6 +3,7 @@
 #endif
 
 #include "window.h"
+#include "Rasterizer.h"
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
 {
@@ -11,6 +12,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
     {
         return 0;
     }
+
+
+    Framebuffer::Framebuffer(int width, int height);
+
+
+
     // Run Message loop
     MSG msg = { };
     while (GetMessage(&msg, NULL, 0, 0) > 0)

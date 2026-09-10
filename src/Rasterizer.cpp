@@ -12,25 +12,49 @@ void Rasterizer::LineDraw(Framebuffer& fb, int x0, int y0, int x1, int y1, uint3
 
     if (x0 < x1)
     {
-        sx = 1;
+        sx = 1; // line moves right
     }
     else
     {
-        sx = -1;
+        sx = -1; // line moves left
     }
 
     
     if (y0 < y1)
     {
-        sy = 1;
+        sy = 1; // line moves up
     }
     else
     {
-        sy = -1;
+        sy = -1; // line moves down
     }
 
-    // IMPLEMENT Initail Error Term (err)
+    //sometimes the line can drift away from the ideal mathematical line, so we use error term to try and fix it. Should it move horizontally and/or vertically?
+    int err = dx - dy;
 
 
-    // FINAL Implement Pixel-Stepping Loop
+    while(true)
+    {
+        // Set the pixels.
+        fb.SetPixel(x0,y0, color);
+        if(x0 == x1 && y0 == y1)
+        {
+            // When all the pixels are set, break the loop
+            break;
+        }
+            // evaluate both X and Y step conditions independently.
+            int e2 = 2*err;
+
+            if(e2 > -dy) // do we need horizontal step?
+            {
+                err = err - dy;
+                x0 = x0 + sx;
+            }
+        
+            if(e2 < dx ) // do we need vertical step?
+            {
+                err = err + dx;
+                y0 = y0 + sy;
+            }    
+    }   
 }
