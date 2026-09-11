@@ -27,7 +27,7 @@ jobs:
         shell: cmd
         run: |
           dir
-          dir RasterizerApp.exe
+          dir Rasterizer.exe
 
       - name: Upload EXE to Release
         uses: softprops/action-gh-release@v2
