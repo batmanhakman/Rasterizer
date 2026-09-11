@@ -29,6 +29,8 @@ jobs:
           dir RasterizerApp.exe
 
       - name: Upload EXE to Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: RasterizerApp.exe
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" RasterizerApp.exe --clobber
