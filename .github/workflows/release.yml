@@ -23,14 +23,13 @@ jobs:
         run: |
           cl /EHsc /std:c++17 /Iinclude main.cpp src\window.cpp src\framebuffer.cpp src\Rasterizer.cpp User32.lib Gdi32.lib /Fe:RasterizerApp.exe
 
-      - name: Verify EXE exists
+      - name: Check EXE
         shell: cmd
         run: |
+          dir
           dir RasterizerApp.exe
 
       - name: Upload EXE to Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: pwsh
-        run: |
-          gh release upload "${{ github.event.release.tag_name }}" RasterizerApp.exe --clobber
+        uses: softprops/action-gh-release@v2
+        with:
+          files: RasterizerApp.exe
