@@ -21,7 +21,7 @@ jobs:
       - name: Build Rasterizer
         shell: cmd
         run: |
-          cl /EHsc /std:c++17 /Iinclude main.cpp src\window.cpp src\framebuffer.cpp src\Rasterizer.cpp User32.lib Gdi32.lib /Fe:RasterizerApp.exe
+          cl /EHsc /std:c++17 /Iinclude main.cpp src\window.cpp src\framebuffer.cpp src\Rasterizer.cpp User32.lib Gdi32.lib /Fe:Rasterizer.exe
 
       - name: Check EXE
         shell: cmd
