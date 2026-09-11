@@ -3,25 +3,32 @@ name: Build Release
 on:
   release:
     types: [published]
-  permissions:
-   contents: write
+
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up MSVC
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Build
+      - name: Build Rasterizer
         shell: cmd
         run: |
-          cl /EHsc /std:c++17 /Iinclude main.cpp src\window.cpp src\framebuffer.cpp src\Rasterizer.cpp User32.lib Gdi32.lib /Fe:Rasterizer.exe
+          cl /EHsc /std:c++17 /Iinclude main.cpp src\window.cpp src\framebuffer.cpp src\Rasterizer.cpp User32.lib Gdi32.lib /Fe:RasterizerApp.exe
 
-      - name: Upload EXE
+      - name: Verify EXE exists
+        shell: cmd
+        run: |
+          dir RasterizerApp.exe
+
+      - name: Upload EXE to Release
         uses: softprops/action-gh-release@v2
         with:
           files: RasterizerApp.exe
