@@ -1,0 +1,26 @@
+name: Build Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build
+        shell: cmd
+        run: |
+          cl /EHsc /std:c++17 /Iinclude main.cpp src\window.cpp src\framebuffer.cpp src\Rasterizer.cpp User32.lib Gdi32.lib /Fe:Rasterizer.exe
+
+      - name: Upload EXE
+        uses: softprops/action-gh-release@v2
+        with:
+          files: RasterizerApp.exe
