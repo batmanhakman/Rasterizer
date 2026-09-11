@@ -3,7 +3,8 @@ name: Build Release
 on:
   release:
     types: [published]
-
+  permissions:
+   contents: write
 jobs:
   build:
     runs-on: windows-latest
