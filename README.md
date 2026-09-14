@@ -1,6 +1,6 @@
 # Training to learn how to load 3d models
-  **IMPORTANT**
-  **Before doing 3d, be able to load png images by either decoding them or finding another way.
+  **IMPORTANT:**
+  *Before doing 3d, be able to load png images by either decoding them or finding another way.*
 
 
 
