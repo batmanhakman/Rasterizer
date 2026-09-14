@@ -33,3 +33,21 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: Rasterizer.exe
+
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Rasterizer
+        run: |
+          clang++ -std=c++17 -fobjc-arc -Iinclude \
+            main.cpp src/macos.mm src/framebuffer.cpp src/Rasterizer.cpp \
+            -framework Cocoa -o Rasterizer
+
+      - name: Upload macOS binary to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Rasterizer
