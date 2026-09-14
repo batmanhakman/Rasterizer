@@ -1,4 +1,4 @@
-#Training to learn how to load 3d models
+# Training to learn how to load 3d models
 
 MILESTONE 1
 - Create a window DONE
