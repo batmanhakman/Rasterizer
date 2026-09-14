@@ -58,3 +58,16 @@ void Rasterizer::LineDraw(Framebuffer& fb, int x0, int y0, int x1, int y1, uint3
             }    
     }   
 }
+
+void Rasterizer::TriangleDraw(
+    Framebuffer& fb,
+    const Vertex2D& p0,
+    const Vertex2D& p1,
+    const Vertex2D& p2,
+    uint32_t color)
+{
+    // Draw the three edges, closing the triangle by connecting p2 back to p0.
+    LineDraw(fb, p0.x, p0.y, p1.x, p1.y, color);
+    LineDraw(fb, p1.x, p1.y, p2.x, p2.y, color);
+    LineDraw(fb, p2.x, p2.y, p0.x, p0.y, color);
+}

@@ -14,6 +14,13 @@ class Framebuffer
     int GetHeight() const {return height; }
 
 
+    uint32_t color(uint32_t r, uint32_t g, uint32_t b, uint32_t a) const
+    {
+        return  ((a & 0xffu) << 24) |
+                ((r & 0xffu) << 16) |
+                ((g & 0xffu) << 8)  |
+                (b & 0xffu);
+    };
 
 
     // Get the pixels and color and store it
