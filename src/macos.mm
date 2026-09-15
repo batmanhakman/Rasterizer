@@ -87,15 +87,30 @@
 
     // Build a green color as 0xRRGGBBAA and draw a line into the buffer.
     uint32_t color = framebuffer->color(0, 255, 0, 255);
-    Rasterizer::LineDraw(*framebuffer, 100, 100, 500, 300, color);
+    uint32_t red = framebuffer->color(0, 0, 255, 255);
+    uint32_t SquareColor = framebuffer->color(255, 0, 128, 255);
+    // a Square has 4 sides, each Vertex2D will connect themsevles.
+    Rasterizer::SquareDraw(
+        *framebuffer,
+        Vertex2D{200, 100},
+        Vertex2D{800, 100},
+        Vertex2D{800, 700},
+        Vertex2D{200, 700},
+        SquareColor);
 
     // Each triangle corner is a Vertex2D containing one x and y coordinate.
-    Rasterizer::TriangleDraw(
+    //Rasterizer::TriangleDraw(
+      //  *framebuffer,
+      //  Vertex2D{500, 100},
+       // Vertex2D{200, 700},
+       // Vertex2D{800, 700},
+       // color);
+    // Draw the circle
+    Rasterizer::CircleDraw(
         *framebuffer,
-        Vertex2D{69, 67},
-        Vertex2D{300, 500},
-        Vertex2D{600, 300},
-        color);
+        Vertex2D{1200, 450},
+        300,
+        red);
 
     NSRect frame = NSMakeRect(0, 0, framebuffer->GetWidth(), framebuffer->GetHeight());
     self.window = [[NSWindow alloc]

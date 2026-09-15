@@ -13,7 +13,7 @@ class Framebuffer
     int GetWidth() const {return width; }
     int GetHeight() const {return height; }
 
-
+    // Opposite of RGBA to get desiered colors, that just how a mac works.
     uint32_t color(uint32_t r, uint32_t g, uint32_t b, uint32_t a) const
     {
         return  ((a & 0xffu) << 24) |

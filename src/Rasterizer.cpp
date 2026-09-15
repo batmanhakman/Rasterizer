@@ -59,6 +59,27 @@ void Rasterizer::LineDraw(Framebuffer& fb, int x0, int y0, int x1, int y1, uint3
     }   
 }
 
+
+
+// Make the square get drawn
+void Rasterizer::SquareDraw(
+    Framebuffer& fb, const Vertex2D& p0, const Vertex2D& p1, const Vertex2D& p2, const Vertex2D& p3, uint32_t color
+)
+{
+    for (int y = p0.y; y <= p2.y; y++)
+    {
+        for (int x = p0.x; x <= p2.x; x++)
+        {
+            fb.SetPixel(x, y, color);
+        }
+    }
+    LineDraw(fb, p0.x, p0.y, p1.x, p1.y, color);
+    LineDraw(fb, p1.x, p1.y, p2.x, p2.y, color);
+    LineDraw(fb, p2.x, p2.y, p3.x, p3.y, color);
+    LineDraw(fb, p3.x, p3.y, p0.x, p0.y, color);
+}
+
+// Make the circle get drawn
 void Rasterizer::TriangleDraw(
     Framebuffer& fb,
     const Vertex2D& p0,
@@ -70,4 +91,31 @@ void Rasterizer::TriangleDraw(
     LineDraw(fb, p0.x, p0.y, p1.x, p1.y, color);
     LineDraw(fb, p1.x, p1.y, p2.x, p2.y, color);
     LineDraw(fb, p2.x, p2.y, p0.x, p0.y, color);
+}
+
+// Draw a filled circle.
+void Rasterizer::CircleDraw(
+    Framebuffer& fb,
+    const Vertex2D& Center,
+    int radius,
+    uint32_t color
+)
+{
+    int squaredRadius = radius * radius;
+
+    for (int y = Center.y - radius; y <= Center.y + radius; y++)
+    {
+        for (int x = Center.x - radius; x <= Center.x + radius; x++)
+        {
+            int dx = x - Center.x;
+            int dy = y - Center.y;
+
+            int distanceSquared = dx * dx + dy * dy;
+
+            if (distanceSquared <= squaredRadius)
+            {
+                fb.SetPixel(x, y, color);
+            }
+        }
+    }
 }
