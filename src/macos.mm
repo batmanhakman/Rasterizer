@@ -146,10 +146,10 @@
     // Redraw the entire frame: clear the old position, draw the new position,
     // then ask Cocoa to call drawRect: with the updated framebuffer.
     framebuffer->Clear(framebuffer->color(20, 24, 40, 255));
-    uint32_t squareColor = framebuffer->color(255, 0, 128, 255);
+    uint32_t squareColor = framebuffer->color(0, 255, 0, 255);
     uint32_t circleColor = framebuffer->color(0, 0, 255, 255);
     uint32_t pyramidColor = framebuffer->color(255, 255, 0, 255);
-    uint32_t cubeColor = framebuffer->color(255, 140, 0, 255);
+    uint32_t cubeColor = framebuffer->color(0, 255, 0, 255);
 
     // Keep the static square and the circle next to each other.
    // Rasterizer::SquareDraw(

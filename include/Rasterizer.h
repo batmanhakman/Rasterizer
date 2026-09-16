@@ -55,6 +55,17 @@ public:
         float angle,
         float focalLenght,
         uint32_t color);
+    static void SphereRaw3D(
+        Framebuffer& fb,
+        const Vertex3D& center,
+        float thi,
+        float theta,
+        int sectorCount,
+        int stackCount,
+        int radius,
+        int diameter,
+        uint32_t color
+    );
     // Draw a square
     static void SquareDraw(Framebuffer& fb, const Vertex2D& p0, const Vertex2D& p1, const Vertex2D& p2, const Vertex2D& p3, uint32_t color);
     // Draw a filled square rotated around its center. The angle is in radians.

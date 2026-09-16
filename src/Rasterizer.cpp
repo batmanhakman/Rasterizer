@@ -449,27 +449,27 @@ void Rasterizer::CubeRaw3DDraw(
     // Each cube face is a quadrilateral split into two triangles.
     // Top face.
     TriangleFill(fb, projectedTopFrontLeft, projectedTopFrontRight,
-                 projectedTopBackRight, color);
+     projectedTopBackRight, color);
     TriangleFill(fb, projectedTopFrontLeft, projectedTopBackRight,
-                 projectedTopBackLeft, color);
+      projectedTopBackLeft, color);
 
     // Bottom face.
     TriangleFill(fb, projectedBottomFrontLeft, projectedBottomFrontRight,
-                 projectedBottomBackRight, color);
+     projectedBottomBackRight, color);
     TriangleFill(fb, projectedBottomFrontLeft, projectedBottomBackRight,
-                 projectedBottomBackLeft, color);
+     projectedBottomBackLeft, color);
 
     // Front face.
     TriangleFill(fb, projectedTopFrontLeft, projectedTopFrontRight,
-                 projectedBottomFrontRight, color);
+     projectedBottomFrontRight, color);
     TriangleFill(fb, projectedTopFrontLeft, projectedBottomFrontRight,
-                 projectedBottomFrontLeft, color);
+        projectedBottomFrontLeft, color);
 
     // Back face.
     TriangleFill(fb, projectedTopBackLeft, projectedTopBackRight,
-                 projectedBottomBackRight, color);
+        projectedBottomBackRight, color);
     TriangleFill(fb, projectedTopBackLeft, projectedBottomBackRight,
-                 projectedBottomBackLeft, color);
+     projectedBottomBackLeft, color);
 
     // Left face.
     TriangleFill(fb, projectedTopFrontLeft, projectedTopBackLeft,
@@ -560,4 +560,32 @@ void Rasterizer::CircleDraw(
             }
         }
     }
+}
+
+void Rasterizer::SphereRaw3D(
+    Framebuffer& fb,
+    const Vertex3D& center,
+    float thi,
+    float theta,
+    int radius,
+    int diameter,
+    int sectorCount,
+    int stackCount,
+    uint32_t color
+)
+{  
+
+    Vertex3D point;
+
+    point.x = (radius * std::cos(thi) * std::cos(theta))
+    point.y = (radius * std::cos(thi) * std::sin(theta))
+    point.z = radius * std::sin(thi)
+
+    float sectorStep = 2 * M_PI/ sectorCount;
+    float stackStep = M_PI / st
+
+    
+
+
+
 }
