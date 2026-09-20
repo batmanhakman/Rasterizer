@@ -562,30 +562,32 @@ void Rasterizer::CircleDraw(
     }
 }
 
-void Rasterizer::SphereRaw3D(
-    Framebuffer& fb,
-    const Vertex3D& center,
-    float thi,
-    float theta,
-    int radius,
-    int diameter,
-    int sectorCount,
-    int stackCount,
-    uint32_t color
-)
-{  
+// void Rasterizer::SphereRaw3D(
+//     Framebuffer& fb,
+//     const Vertex3D& center,
+//     float thi,
+//     float theta,
+//     int radius,
+//     int diameter,
+//     int sectorCount,
+//     int stackCount,
+//     uint32_t color
+// )
+// {  
 
-    Vertex3D point;
+//     Vertex3D point;
 
-    point.x = (radius * std::cos(thi) * std::cos(theta))
-    point.y = (radius * std::cos(thi) * std::sin(theta))
-    point.z = radius * std::sin(thi)
+//     point.x = (radius * std::cos(thi) * std::cos(theta))
+//     point.y = (radius * std::cos(thi) * std::sin(theta))
+//     point.z = radius * std::sin(thi)
 
-    float sectorStep = 2 * M_PI/ sectorCount;
-    float stackStep = M_PI / st
+//     float sectorStep = 2 * M_PI/ sectorCount;
+//     float stackStep = M_PI / st;
+
+
 
     
 
 
 
-}
+// }

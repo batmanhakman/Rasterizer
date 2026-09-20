@@ -2,6 +2,7 @@
 #include "framebuffer.h"
 #include <cmath>
 
+
 struct Vertex2D
 {
     int x;
@@ -14,7 +15,6 @@ struct Vertex3D
     float y;
     float z;
 };
-
 
 class Rasterizer
 {
