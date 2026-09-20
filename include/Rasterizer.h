@@ -1,6 +1,9 @@
 #pragma once
 #include "framebuffer.h"
-#include <cmath>
+#include "Vectors.h"
+
+#include <cstddef>
+#include <vector>
 
 
 struct Vertex2D
@@ -14,6 +17,31 @@ struct Vertex3D
     float x;
     float y;
     float z;
+};
+
+// A triangle refers to three entries in Mesh::vertices. Keeping the vertex
+// data and face topology separate lets every 3D model use the same renderer.
+struct TriangleIndices
+{
+    std::size_t first;
+    std::size_t second;
+    std::size_t third;
+};
+
+struct Mesh
+{
+    std::vector<Vector3D> vertices;
+    std::vector<TriangleIndices> triangles;
+};
+
+// The camera looks along +Z when yaw and pitch are zero. Position is in the
+// same world-space units as Mesh vertices.
+struct Camera
+{
+    Vector3D position;
+    float yaw;
+    float pitch;
+    float focalLength;
 };
 
 class Rasterizer
@@ -40,20 +68,26 @@ public:
         float angle,
         float focalLength,
         uint32_t color);
-    // Draw a four-sided pyramid rotating around its vertical (Y) axis.
+    // Transform a world-space mesh into camera space, project it, and fill
+    // every indexed triangle in its declared order.
+    static void DrawMesh(
+        Framebuffer& fb,
+        const Mesh& mesh,
+        const Camera& camera,
+        uint32_t color);
+    // Draw a stationary four-sided pyramid through the generic mesh path.
     static void Pyramid3DDraw(
         Framebuffer& fb,
         const Vertex3D& center,
         float size,
-        float angle,
-        float focalLength,
+        const Camera& camera,
         uint32_t color);
+    // Draw a stationary cube through the generic mesh path.
     static void CubeRaw3DDraw(
         Framebuffer& fb,
         const Vertex3D& center,
         int halfSize,
-        float angle,
-        float focalLenght,
+        const Camera& camera,
         uint32_t color);
     static void SphereRaw3D(
         Framebuffer& fb,

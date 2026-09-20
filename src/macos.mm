@@ -6,9 +6,11 @@
 @interface RasterizerView : NSView
 {
     Framebuffer* framebuffer;
+    BOOL keyStates[128];
 }
 
 - (instancetype)initWithFramebuffer:(Framebuffer*)framebuffer;
+- (BOOL)isKeyPressed:(unsigned short)keyCode;
 @end
 
 @implementation RasterizerView
@@ -68,6 +70,34 @@
     CGColorSpaceRelease(colorSpace);
 }
 
+- (BOOL)acceptsFirstResponder
+{
+    return YES;
+}
+
+- (void)keyDown:(NSEvent*)event
+{
+    const unsigned short keyCode = event.keyCode;
+    if (keyCode < 128)
+    {
+        keyStates[keyCode] = YES;
+    }
+}
+
+- (void)keyUp:(NSEvent*)event
+{
+    const unsigned short keyCode = event.keyCode;
+    if (keyCode < 128)
+    {
+        keyStates[keyCode] = NO;
+    }
+}
+
+- (BOOL)isKeyPressed:(unsigned short)keyCode
+{
+    return keyCode < 128 && keyStates[keyCode];
+}
+
 @end
 
 @interface RasterizerAppDelegate : NSObject <NSApplicationDelegate>
@@ -78,9 +108,8 @@
 @implementation RasterizerAppDelegate
 {
     Framebuffer* framebuffer;
-    float squareY;
-    float squareVelocityY;
-    float squareAngle;
+    RasterizerView* rasterizerView;
+    Camera camera;
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification*)notification
@@ -88,9 +117,7 @@
     (void)notification;
 
     framebuffer = new Framebuffer(1920, 1080);
-    squareY = 140.0f;
-    squareVelocityY = 0.0f;
-    squareAngle = 0.0f;
+    camera = Camera{Vector3D{0.0f, 0.0f, 0.0f}, 0.0f, 0.0f, 500.0f};
 
     // Clear every pixel first; new[] does not initialize the framebuffer.
     framebuffer->Clear(framebuffer->color(0, 0, 0, 255));
@@ -103,9 +130,11 @@
                     backing:NSBackingStoreBuffered
                       defer:NO];
     self.window.title = @"Rasterizer";
-    self.window.contentView = [[RasterizerView alloc] initWithFramebuffer:framebuffer];
+    rasterizerView = [[RasterizerView alloc] initWithFramebuffer:framebuffer];
+    self.window.contentView = rasterizerView;
     [self.window center];
     [self.window makeKeyAndOrderFront:nil];
+    [self.window makeFirstResponder:rasterizerView];
 
     // Run the simulation at approximately 60 frames per second.
     self.animationTimer = [NSTimer scheduledTimerWithTimeInterval:(1.0 / 60.0)
@@ -120,28 +149,58 @@
 {
     (void)timer;
 
-    // This fixed time step describes how much simulated time passes per
-    // update. Position and velocity are measured in pixels and pixels/second.
+    // Use a fixed step to convert held keys into consistent camera movement.
     const float deltaTime = 1.0f / 60.0f;
-    const float gravity = 900.0f;
-    const int halfSize = 100;
-    const float floorY = static_cast<float>(framebuffer->GetHeight() - halfSize);
+    const float moveSpeed = 300.0f;
+    const float lookSpeed = 1.5f;
+    const float moveDistance = moveSpeed * deltaTime;
 
-    // Gravity increases downward velocity. The velocity then changes the
-    // square's vertical position.
-    squareVelocityY += gravity * deltaTime;
-    squareY += squareVelocityY * deltaTime;
-
-    if (squareY >= floorY)
+    // W/S move along the horizontal viewing direction; A/D strafe. Arrow
+    // keys adjust yaw and pitch, allowing the camera to look around.
+    const Vector3D forward = {std::sin(camera.yaw), 0.0f, std::cos(camera.yaw)};
+    const Vector3D right = {std::cos(camera.yaw), 0.0f, -std::sin(camera.yaw)};
+    const Vector3D downward = {0.0f, -1.0f, 0.0f};
+    const Vector3D up = {0.0f, 1.0f, 0.0f};
+    if ([rasterizerView isKeyPressed:13]) // W
     {
-        // Keep the square above the floor, reverse its velocity, and reduce
-        // it so each bounce loses energy.
-        squareY = floorY;
-        squareVelocityY = -squareVelocityY * 0.75f;
+        camera.position = Vectors::Addition(camera.position, Vectors::Scalar(forward, moveDistance));
     }
-
-    // Increase the angle every update. RotatedSquareDraw expects radians.
-    squareAngle += 1.5f * deltaTime;
+    if ([rasterizerView isKeyPressed:1]) // S
+    {
+        camera.position = Vectors::Subtraction(camera.position, Vectors::Scalar(forward, moveDistance));
+    }
+    if ([rasterizerView isKeyPressed:12]) // Q
+    {
+        camera.position = Vectors::Subtraction(camera.position, Vectors::Scalar(downward, moveDistance));
+    }
+    if ([rasterizerView isKeyPressed:14]) // E
+    {
+        camera.position = Vectors::Subtraction(camera.position, Vectors::Scalar(up, moveDistance));
+    }
+    if ([rasterizerView isKeyPressed:0]) // A
+    {
+        camera.position = Vectors::Subtraction(camera.position, Vectors::Scalar(right, moveDistance));
+    }
+    if ([rasterizerView isKeyPressed:2]) // D
+    {
+        camera.position = Vectors::Addition(camera.position, Vectors::Scalar(right, moveDistance));
+    }
+    if ([rasterizerView isKeyPressed:123]) // Left arrow
+    {
+        camera.yaw -= lookSpeed * deltaTime;
+    }
+    if ([rasterizerView isKeyPressed:124]) // Right arrow
+    {
+        camera.yaw += lookSpeed * deltaTime;
+    }
+    if ([rasterizerView isKeyPressed:126]) // Up arrow
+    {
+        camera.pitch = std::min(camera.pitch + lookSpeed * deltaTime, 1.4f);
+    }
+    if ([rasterizerView isKeyPressed:125]) // Down arrow
+    {
+        camera.pitch = std::max(camera.pitch - lookSpeed * deltaTime, -1.4f);
+    }
 
     // Redraw the entire frame: clear the old position, draw the new position,
     // then ask Cocoa to call drawRect: with the updated framebuffer.
@@ -164,31 +223,21 @@
        // Vertex2D{680, 220},
        // 120,
        // circleColor);
-    // The pyramid is a 3D object: one apex and four base corners. Its Y-axis
-    // angle makes it spin horizontally from right to left.
+    // The models are stationary in world space. The camera supplies all view
+    // movement and orientation, so neither shape has a spin angle anymore.
     Rasterizer::Pyramid3DDraw(
         *framebuffer,
         Vertex3D{0.0f, 0.0f, 450.0f},
         120.0f,
-        squareAngle,
-        500.0f,
+        camera,
         pyramidColor);
 
     Rasterizer::CubeRaw3DDraw(
         *framebuffer,
         Vertex3D{-450.0f, 0.0f, 450.0f},
         120,
-        squareAngle,
-        500.0f,
+        camera,
         cubeColor);
-
-    // The rotating square remains available:
-    // Rasterizer::RotatedSquareDraw(
-    //     *framebuffer,
-    //     Vertex2D{280, static_cast<int>(squareY)},
-    //     halfSize,
-    //     squareAngle,
-    //     squareColor);
 
     [self.window.contentView setNeedsDisplay:YES];
 }
