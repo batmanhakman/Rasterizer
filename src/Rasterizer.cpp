@@ -3,12 +3,44 @@
 //THIS CPP ALLOWS:
 // 1. DRAWING 2D
 // 2. DRAWING 3D
-// 3. SPINNING
+// 3. CAMERA-VIEWED 3D MESHES
 //-------------------------------- 
 
 #include "Rasterizer.h"
+#include "Vectors.h"
 #include <algorithm>
 #include <cmath>
+
+namespace
+{
+Vector3D WorldToCamera(const Vector3D& worldPosition, const Camera& camera)
+{
+    // First express the point relative to the camera. Then project it onto
+    // the camera's right, down, and forward axes to obtain camera space.
+    const Vector3D relative = Vectors::Subtraction(worldPosition, camera.position);
+    const float yawSine = std::sin(camera.yaw);
+    const float yawCosine = std::cos(camera.yaw);
+    const float pitchSine = std::sin(camera.pitch);
+    const float pitchCosine = std::cos(camera.pitch);
+
+    const Vector3D right = {yawCosine, 0.0f, -yawSine};
+    const Vector3D forward = {
+        yawSine * pitchCosine,
+        -pitchSine,
+        yawCosine * pitchCosine};
+    const Vector3D down = Vectors::CrossProduct(forward, right);
+
+    return Vector3D{
+        Vectors::DotProduct(relative, right),
+        Vectors::DotProduct(relative, down),
+        Vectors::DotProduct(relative, forward)};
+}
+
+Vertex3D ToVertex3D(const Vector3D& vector)
+{
+    return Vertex3D{vector.x, vector.y, vector.z};
+}
+} // namespace
 
 // Basic line drawing, draws a line when called
 void Rasterizer::LineDraw(Framebuffer& fb, int x0, int y0, int x1, int y1, uint32_t color)
@@ -280,208 +312,107 @@ void Rasterizer::Triangle3DDraw(
     TriangleFill(fb, projected0, projected1, projected2, color);
 }
 
+void Rasterizer::DrawMesh(
+    Framebuffer& fb,
+    const Mesh& mesh,
+    const Camera& camera,
+    uint32_t color)
+{
+    std::vector<Vertex2D> projectedVertices(mesh.vertices.size());
+
+    // Transform every world-space Vector3D into the camera's coordinate
+    // system before using the existing perspective projection routine.
+    for (std::size_t i = 0; i < mesh.vertices.size(); ++i)
+    {
+        const Vector3D cameraSpaceVertex = WorldToCamera(mesh.vertices[i], camera);
+        if (!ProjectVertex(
+                fb,
+                ToVertex3D(cameraSpaceVertex),
+                camera.focalLength,
+                projectedVertices[i]))
+        {
+            // This retains the previous behavior: a model is not rendered
+            // unless all of its vertices are in front of the camera.
+            return;
+        }
+    }
+
+    for (const TriangleIndices& triangle : mesh.triangles)
+    {
+        if (triangle.first >= projectedVertices.size() ||
+            triangle.second >= projectedVertices.size() ||
+            triangle.third >= projectedVertices.size())
+        {
+            continue;
+        }
+
+        TriangleFill(
+            fb,
+            projectedVertices[triangle.first],
+            projectedVertices[triangle.second],
+            projectedVertices[triangle.third],
+            color);
+    }
+}
+
 void Rasterizer::Pyramid3DDraw(
     Framebuffer& fb,
     const Vertex3D& center,
     float size,
-    float angle,
-    float focalLength,
+    const Camera& camera,
     uint32_t color)
 {
-    const float sine = std::sin(angle);
-    const float cosine = std::cos(angle);
-
-    // Build a pyramid in local 3D space. The apex is above the square base.
-    const Vertex3D localApex = {0.0f, -size, 0.0f};
-    const Vertex3D localFrontLeft = {-size, size, -size};
-    const Vertex3D localFrontRight = {size, size, -size};
-    const Vertex3D localBackRight = {size, size, size};
-    const Vertex3D localBackLeft = {-size, size, size};
-
-    // Rotate around Y and then move the model to its world/camera position.
-    const auto transform = [&](const Vertex3D& vertex)
-    {
-        return Vertex3D{
-            center.x + vertex.x * cosine - vertex.z * sine,
-            center.y + vertex.y,
-            center.z + vertex.x * sine + vertex.z * cosine};
+    const Vector3D centerVector = {center.x, center.y, center.z};
+    const Mesh pyramid = {
+        {
+            Vectors::Addition(centerVector, Vector3D{0.0f, -size, 0.0f}),
+            Vectors::Addition(centerVector, Vector3D{-size, size, -size}),
+            Vectors::Addition(centerVector, Vector3D{size, size, -size}),
+            Vectors::Addition(centerVector, Vector3D{size, size, size}),
+            Vectors::Addition(centerVector, Vector3D{-size, size, size})
+        },
+        {
+            {0, 1, 2},
+            {0, 2, 3},
+            {0, 3, 4},
+            {0, 4, 1}
+        }
     };
 
-    const Vertex3D apex = transform(localApex);
-    const Vertex3D frontLeft = transform(localFrontLeft);
-    const Vertex3D frontRight = transform(localFrontRight);
-    const Vertex3D backRight = transform(localBackRight);
-    const Vertex3D backLeft = transform(localBackLeft);
-
-    Vertex2D projectedApex;
-    Vertex2D projectedFrontLeft;
-    Vertex2D projectedFrontRight;
-    Vertex2D projectedBackRight;
-    Vertex2D projectedBackLeft;
-
-    if (!ProjectVertex(fb, apex, focalLength, projectedApex) ||
-        !ProjectVertex(fb, frontLeft, focalLength, projectedFrontLeft) ||
-        !ProjectVertex(fb, frontRight, focalLength, projectedFrontRight) ||
-        !ProjectVertex(fb, backRight, focalLength, projectedBackRight) ||
-        !ProjectVertex(fb, backLeft, focalLength, projectedBackLeft))
-    {
-        return;
-    }
-
-    // A pyramid has four triangular side faces. Drawing each face filled makes
-    // the depth visible; the base is omitted because it points downward.
-    TriangleFill(fb, projectedApex, projectedFrontLeft, projectedFrontRight, color);
-    TriangleFill(fb, projectedApex, projectedFrontRight, projectedBackRight, color);
-    TriangleFill(fb, projectedApex, projectedBackRight, projectedBackLeft, color);
-    TriangleFill(fb, projectedApex, projectedBackLeft, projectedFrontLeft, color);
+    DrawMesh(fb, pyramid, camera, color);
 }
-// Draws a 3D cube that spins
+
 void Rasterizer::CubeRaw3DDraw(
     Framebuffer& fb,
     const Vertex3D& center,
     int halfSize,
-    float angle,
-    float focalLenght,
-    uint32_t color
-)
+    const Camera& camera,
+    uint32_t color)
 {
-    const float sine = std::sin(angle);
-    const float cosine = std::cos(angle);
-
-    // All cube corners are local offsets from the cube center. The transform
-    // below adds the center exactly once after rotating each corner.
     const float size = static_cast<float>(halfSize);
-    const Vertex3D topFrontLeft = {-size, size, -size};
-    const Vertex3D topFrontRight = {size, size, -size};
-    const Vertex3D topBackRight = {size, size, size};
-    const Vertex3D topBackLeft = {-size, size, size};
-    const Vertex3D bottomFrontLeft = {-size, -size, -size};
-    const Vertex3D bottomFrontRight = {size, -size, -size};
-    const Vertex3D bottomBackRight = {size, -size, size};
-    const Vertex3D bottomBackLeft = {-size, -size, size};
-
-    // These aliases describe the same eight corners from the side-face
-    // perspective, making the face definitions below easier to read.
-    const Vertex3D rightTopFront = topFrontRight;
-    const Vertex3D rightTopBack = topBackRight;
-    const Vertex3D rightBottomBack = bottomBackRight;
-    const Vertex3D rightBottomFront = bottomFrontRight;
-    const Vertex3D leftTopFront = topFrontLeft;
-    const Vertex3D leftTopBack = topBackLeft;
-    const Vertex3D leftBottomBack = bottomBackLeft;
-    const Vertex3D leftBottomFront = bottomFrontLeft;
-
-    // Rotate around Y
-    const auto Transform = [&](const Vertex3D& vertex)
-    {
-        return Vertex3D
+    const Vector3D centerVector = {center.x, center.y, center.z};
+    const Mesh cube = {
         {
-            center.x + vertex.x * cosine - vertex.z * sine,
-            center.y + vertex.y,
-            center.z + vertex.x * sine + vertex.z * cosine
-        };
+            Vectors::Addition(centerVector, Vector3D{-size, size, -size}),
+            Vectors::Addition(centerVector, Vector3D{size, size, -size}),
+            Vectors::Addition(centerVector, Vector3D{size, size, size}),
+            Vectors::Addition(centerVector, Vector3D{-size, size, size}),
+            Vectors::Addition(centerVector, Vector3D{-size, -size, -size}),
+            Vectors::Addition(centerVector, Vector3D{size, -size, -size}),
+            Vectors::Addition(centerVector, Vector3D{size, -size, size}),
+            Vectors::Addition(centerVector, Vector3D{-size, -size, size})
+        },
+        {
+            {0, 1, 2}, {0, 2, 3}, // top
+            {4, 5, 6}, {4, 6, 7}, // bottom
+            {0, 1, 5}, {0, 5, 4}, // front
+            {3, 2, 6}, {3, 6, 7}, // back
+            {0, 3, 7}, {0, 7, 4}, // left
+            {1, 2, 6}, {1, 6, 5}  // right
+        }
     };
 
-    // Transform those 3D to 2D
-    const Vertex3D transformedTopFrontLeft = Transform(topFrontLeft);
-    const Vertex3D transformedTopFrontRight = Transform(topFrontRight);
-    const Vertex3D transformedTopBackRight = Transform(topBackRight);
-    const Vertex3D transformedTopBackLeft = Transform(topBackLeft);
-
-    const Vertex3D transformedBottomFrontLeft = Transform(bottomFrontLeft);
-    const Vertex3D transformedBottomFrontRight = Transform(bottomFrontRight);
-    const Vertex3D transformedBottomBackRight = Transform(bottomBackRight);
-    const Vertex3D transformedBottomBackLeft = Transform(bottomBackLeft);
-
-    const Vertex3D transformedRightTopFront = Transform(rightTopFront);
-    const Vertex3D transformedRightTopBack = Transform(rightTopBack);
-    const Vertex3D transformedRightBottomBack = Transform(rightBottomBack);
-    const Vertex3D transformedRightBottomFront = Transform(rightBottomFront);
-
-    const Vertex3D transformedLeftTopFront = Transform(leftTopFront);
-    const Vertex3D transformedLeftTopBack = Transform(leftTopBack);
-    const Vertex3D transformedLeftBottomBack = Transform(leftBottomBack);
-    const Vertex3D transformedLeftBottomFront = Transform(leftBottomFront);
-
-    // These are the 2D Vertex, projected is for the ProjectVertex
-    Vertex2D projectedTopFrontLeft;
-    Vertex2D projectedTopFrontRight;
-    Vertex2D projectedTopBackRight;
-    Vertex2D projectedTopBackLeft;
-    Vertex2D projectedBottomFrontLeft;
-    Vertex2D projectedBottomFrontRight;
-    Vertex2D projectedBottomBackRight;
-    Vertex2D projectedBottomBackLeft;
-
-    Vertex2D projectedRightTopFront;
-    Vertex2D projectedRightTopBack;
-    Vertex2D projectedRightBottomBack;
-    Vertex2D projectedRightBottomFront;
-
-    Vertex2D projectedLeftTopFront;
-    Vertex2D projectedLeftTopBack;
-    Vertex2D projectedLeftBottomBack;
-    Vertex2D projectedLeftBottomFront;
-
-    // Every cube vertex must be in front of the camera before it can be
-    // projected. The output Vertex2D receives the screen coordinates, Project Vertex takes a 3D Vertex,
-    // and turns it to 2D while still retaining the depth of the 3D
-    if (!ProjectVertex(fb, transformedTopFrontLeft, focalLenght, projectedTopFrontLeft) ||
-        !ProjectVertex(fb, transformedTopFrontRight, focalLenght, projectedTopFrontRight) ||
-        !ProjectVertex(fb, transformedTopBackRight, focalLenght, projectedTopBackRight) ||
-        !ProjectVertex(fb, transformedTopBackLeft, focalLenght, projectedTopBackLeft) ||
-        !ProjectVertex(fb, transformedBottomFrontLeft, focalLenght, projectedBottomFrontLeft) ||
-        !ProjectVertex(fb, transformedBottomFrontRight, focalLenght, projectedBottomFrontRight) ||
-        !ProjectVertex(fb, transformedBottomBackRight, focalLenght, projectedBottomBackRight) ||
-        !ProjectVertex(fb, transformedBottomBackLeft, focalLenght, projectedBottomBackLeft) ||
-        !ProjectVertex(fb, transformedRightTopFront, focalLenght, projectedRightTopFront) ||
-        !ProjectVertex(fb, transformedRightTopBack, focalLenght, projectedRightTopBack) ||
-        !ProjectVertex(fb, transformedRightBottomBack, focalLenght, projectedRightBottomBack) ||
-        !ProjectVertex(fb, transformedRightBottomFront, focalLenght, projectedRightBottomFront) ||
-        !ProjectVertex(fb, transformedLeftTopFront, focalLenght, projectedLeftTopFront) ||
-        !ProjectVertex(fb, transformedLeftTopBack, focalLenght, projectedLeftTopBack) ||
-        !ProjectVertex(fb, transformedLeftBottomBack, focalLenght, projectedLeftBottomBack) ||
-        !ProjectVertex(fb, transformedLeftBottomFront, focalLenght, projectedLeftBottomFront))
-    {
-        return;
-    }
-
-    // Each cube face is a quadrilateral split into two triangles.
-    // Top face.
-    TriangleFill(fb, projectedTopFrontLeft, projectedTopFrontRight,
-     projectedTopBackRight, color);
-    TriangleFill(fb, projectedTopFrontLeft, projectedTopBackRight,
-      projectedTopBackLeft, color);
-
-    // Bottom face.
-    TriangleFill(fb, projectedBottomFrontLeft, projectedBottomFrontRight,
-     projectedBottomBackRight, color);
-    TriangleFill(fb, projectedBottomFrontLeft, projectedBottomBackRight,
-     projectedBottomBackLeft, color);
-
-    // Front face.
-    TriangleFill(fb, projectedTopFrontLeft, projectedTopFrontRight,
-     projectedBottomFrontRight, color);
-    TriangleFill(fb, projectedTopFrontLeft, projectedBottomFrontRight,
-        projectedBottomFrontLeft, color);
-
-    // Back face.
-    TriangleFill(fb, projectedTopBackLeft, projectedTopBackRight,
-        projectedBottomBackRight, color);
-    TriangleFill(fb, projectedTopBackLeft, projectedBottomBackRight,
-     projectedBottomBackLeft, color);
-
-    // Left face.
-    TriangleFill(fb, projectedTopFrontLeft, projectedTopBackLeft,
-                 projectedBottomBackLeft, color);
-    TriangleFill(fb, projectedTopFrontLeft, projectedBottomBackLeft,
-                 projectedBottomFrontLeft, color);
-
-    // Right face.
-    TriangleFill(fb, projectedTopFrontRight, projectedTopBackRight,
-                 projectedBottomBackRight, color);
-    TriangleFill(fb, projectedTopFrontRight, projectedBottomBackRight,
-                 projectedBottomFrontRight, color);
+    DrawMesh(fb, cube, camera, color);
 }
 
 // Make the circle get drawn
