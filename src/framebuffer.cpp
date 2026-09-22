@@ -30,6 +30,11 @@ void Framebuffer::SetPixel(int x, int y, uint32_t color)
     }
 }
 
+void Framebuffer::SetPixelUnchecked(int x, int y, uint32_t color)
+{
+    pixels[y * width + x] = color;
+}
+
 
 uint32_t* Framebuffer::GetBuffer() const
 {

@@ -10,9 +10,12 @@
 #include "Vectors.h"
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace
 {
+constexpr float kNearClipDistance = 5.0f;
+
 Vector3D WorldToCamera(const Vector3D& worldPosition, const Camera& camera)
 {
     // First express the point relative to the camera. Then project it onto
@@ -269,8 +272,10 @@ bool Rasterizer::ProjectVertex(
     Vertex2D& projected)
 {
     // Perspective divides by depth: farther points appear closer to the
-    // center and therefore smaller. z must be positive and non-zero.
-    if (vertex.z <= 0.0f)
+    // center and therefore smaller. Keeping a small near distance prevents a
+    // vertex almost at the camera from producing impractically huge screen
+    // coordinates. Full near-plane triangle clipping can replace this later.
+    if (vertex.z <= kNearClipDistance)
     {
         return false;
     }
@@ -319,12 +324,14 @@ void Rasterizer::DrawMesh(
     uint32_t color)
 {
     std::vector<Vertex2D> projectedVertices(mesh.vertices.size());
+    std::vector<float> cameraDepths(mesh.vertices.size());
 
     // Transform every world-space Vector3D into the camera's coordinate
     // system before using the existing perspective projection routine.
     for (std::size_t i = 0; i < mesh.vertices.size(); ++i)
     {
         const Vector3D cameraSpaceVertex = WorldToCamera(mesh.vertices[i], camera);
+        cameraDepths[i] = cameraSpaceVertex.z;
         if (!ProjectVertex(
                 fb,
                 ToVertex3D(cameraSpaceVertex),
@@ -337,21 +344,121 @@ void Rasterizer::DrawMesh(
         }
     }
 
+    // The framebuffer has no depth buffer. Draw the triangles that are
+    // farther from the camera first, so nearer faces paint over them rather
+    // than appearing to be see-through. Average depth is sufficient for the
+    // non-intersecting cube and pyramid; a z-buffer is the robust next step
+    // for intersecting geometry.
+    std::vector<TriangleIndices> sortedTriangles;
+    sortedTriangles.reserve(mesh.triangles.size());
     for (const TriangleIndices& triangle : mesh.triangles)
     {
-        if (triangle.first >= projectedVertices.size() ||
-            triangle.second >= projectedVertices.size() ||
-            triangle.third >= projectedVertices.size())
+        if (triangle.first < projectedVertices.size() &&
+            triangle.second < projectedVertices.size() &&
+            triangle.third < projectedVertices.size())
+        {
+            sortedTriangles.push_back(triangle);
+        }
+    }
+
+    std::sort(
+        sortedTriangles.begin(),
+        sortedTriangles.end(),
+        [&](const TriangleIndices& left, const TriangleIndices& right)
+        {
+            const float leftDepth =
+                (cameraDepths[left.first] + cameraDepths[left.second] + cameraDepths[left.third]) / 3.0f;
+            const float rightDepth =
+                (cameraDepths[right.first] + cameraDepths[right.second] + cameraDepths[right.third]) / 3.0f;
+            return leftDepth > rightDepth;
+        });
+
+    for (const TriangleIndices& triangle : sortedTriangles)
+    {
+        // TO-DO
+        // LIGHTING DEBUG NOTE:
+        // A face that looks transparent is usually receiving brightness 0 and
+        // therefore being drawn black against the black background. Before
+        // changing projection code, temporarily use a small ambient minimum
+        // (for example, 0.1) to prove the triangle is still being rasterized.
+        // If it reappears, inspect its winding: CrossProduct(B - A, C - A)
+        // must point outward. The cube's face indices below are now wound
+        // consistently for lighting; use that same order for sphere faces.
+        // LIGHTING ROADMAP (implement this before calling TriangleFill):
+        // 1. Fetch the three *world-space* vertices from mesh.vertices using
+        //    triangle.first, triangle.second, and triangle.third. Do lighting
+        //    in world space; projected 2D coordinates no longer describe a
+        //    face's real orientation.
+        const Vector3D& vertexA = mesh.vertices[triangle.first];
+        const Vector3D& vertexB = mesh.vertices[triangle.second];
+        const Vector3D& vertexC = mesh.vertices[triangle.third];
+        // 2. Form two edges from the first vertex to the other two. Their
+        //    cross product is the face normal. Normalize that normal by
+        //    dividing it by its Vectors::length result. The triangle winding
+        //    determines which way it faces: reverse the cross-product order
+        //    (or the triangle indices) if a lit face is unexpectedly dark.
+        const Vector3D edge1 = Vectors::Subtraction(vertexB, vertexA);
+        const Vector3D edge2 = Vectors::Subtraction(vertexC, vertexA);
+
+        const Vector3D faceNormal = Vectors::CrossProduct(edge1, edge2);
+        const float faceNormalLength = Vectors::length(faceNormal);
+        const Vector3D toCamera = Vectors::Subtraction(camera.position, vertexA);
+
+        // Closed, outward-wound meshes do not need their back faces drawn.
+        // Culling them before normalization, lighting, and rasterization
+        // removes roughly half of a sphere's triangle workload.
+        if (faceNormalLength == 0.0f || Vectors::DotProduct(faceNormal, toCamera) <= 0.0f)
         {
             continue;
         }
+
+        // Normalized Normal
+        const Vector3D normalizedfaceNormal = {
+            faceNormal.x / faceNormalLength,
+            faceNormal.y / faceNormalLength,
+            faceNormal.z / faceNormalLength
+        };
+
+
+        // 3. Store a point-light position (for example, as a Vector3D near
+        //    the camera). Subtract the first face vertex from that position to
+        //    get a direction *toward* the light, then normalize it as well.
+        const Vector3D lightPoint = camera.position;
+        const Vector3D lightDirection = Vectors::Subtraction(lightPoint, vertexA);
+
+        const float lightDirectionLength = Vectors::length(lightDirection);
+        const Vector3D normalizedlightDirection = {
+            lightDirection.x / lightDirectionLength,
+            lightDirection.y / lightDirectionLength,
+            lightDirection.z / lightDirectionLength
+        };
+        // 4. The dot product of the normalized normal and light direction is
+        //    the Lambert brightness: 1 means directly lit, 0 means sideways,
+        //    and negative means the light is behind the face. Clamp it to at
+        //    least zero, or to a small ambient value so dark faces remain
+        //    visible. Optional: multiply it by distance falloff from the
+        //    point light for a more realistic result.
+        float brightness = Vectors::DotProduct(normalizedfaceNormal, normalizedlightDirection);
+
+        if(brightness < 0)
+        {
+            brightness = 0;
+        };
+
+        float ambientMinimum = std::max(0.1f, brightness);
+        // 5. Multiply the base color's red, green, and blue channels by that
+        //    brightness, clamp each channel to [0, 255], rebuild a pixel with
+        //    framebuffer.color(...), and pass that shaded color below. Keep
+        //    alpha unchanged. Recalculate per triangle for flat lighting.
+
+        uint32_t shadedColor = fb.color(255 * ambientMinimum, 0, 0, 255);
 
         TriangleFill(
             fb,
             projectedVertices[triangle.first],
             projectedVertices[triangle.second],
             projectedVertices[triangle.third],
-            color);
+            shadedColor);
     }
 }
 
@@ -403,11 +510,11 @@ void Rasterizer::CubeRaw3DDraw(
             Vectors::Addition(centerVector, Vector3D{-size, -size, size})
         },
         {
-            {0, 1, 2}, {0, 2, 3}, // top
+            {0, 2, 1}, {0, 3, 2}, // top
             {4, 5, 6}, {4, 6, 7}, // bottom
             {0, 1, 5}, {0, 5, 4}, // front
-            {3, 2, 6}, {3, 6, 7}, // back
-            {0, 3, 7}, {0, 7, 4}, // left
+            {3, 6, 2}, {3, 7, 6}, // back
+            {0, 7, 3}, {0, 4, 7}, // left
             {1, 2, 6}, {1, 6, 5}  // right
         }
     };
@@ -442,6 +549,11 @@ void Rasterizer::TriangleFill(
     const int minY = std::max(0, std::min({p0.y, p1.y, p2.y}));
     const int maxY = std::min(fb.GetHeight() - 1, std::max({p0.y, p1.y, p2.y}));
 
+    if (minX > maxX || minY > maxY)
+    {
+        return;
+    }
+
     const auto edge = [](const Vertex2D& a, const Vertex2D& b, int x, int y)
     {
         return (x - a.x) * (b.y - a.y) - (y - a.y) * (b.x - a.x);
@@ -449,7 +561,48 @@ void Rasterizer::TriangleFill(
 
     for (int y = minY; y <= maxY; y++)
     {
-        for (int x = minX; x <= maxX; x++)
+        // Intersect this scanline with the three edges first. This avoids
+        // visiting the large empty parts of a triangle's bounding rectangle,
+        // which become especially expensive when a nearby mesh is magnified.
+        float leftIntersection = std::numeric_limits<float>::infinity();
+        float rightIntersection = -std::numeric_limits<float>::infinity();
+        const auto includeEdgeIntersection = [&](const Vertex2D& a, const Vertex2D& b)
+        {
+            if (a.y == b.y)
+            {
+                if (y == a.y)
+                {
+                    leftIntersection = std::min(leftIntersection, static_cast<float>(std::min(a.x, b.x)));
+                    rightIntersection = std::max(rightIntersection, static_cast<float>(std::max(a.x, b.x)));
+                }
+                return;
+            }
+
+            const int edgeMinY = std::min(a.y, b.y);
+            const int edgeMaxY = std::max(a.y, b.y);
+            if (y < edgeMinY || y > edgeMaxY)
+            {
+                return;
+            }
+
+            const float progress = static_cast<float>(y - a.y) / static_cast<float>(b.y - a.y);
+            const float x = a.x + progress * static_cast<float>(b.x - a.x);
+            leftIntersection = std::min(leftIntersection, x);
+            rightIntersection = std::max(rightIntersection, x);
+        };
+
+        includeEdgeIntersection(p0, p1);
+        includeEdgeIntersection(p1, p2);
+        includeEdgeIntersection(p2, p0);
+
+        if (leftIntersection > rightIntersection)
+        {
+            continue;
+        }
+
+        const int startX = std::max(minX, static_cast<int>(std::floor(leftIntersection)));
+        const int endX = std::min(maxX, static_cast<int>(std::ceil(rightIntersection)));
+        for (int x = startX; x <= endX; x++)
         {
             const int e0 = edge(p0, p1, x, y);
             const int e1 = edge(p1, p2, x, y);
@@ -460,7 +613,7 @@ void Rasterizer::TriangleFill(
             if ((e0 >= 0 && e1 >= 0 && e2 >= 0) ||
                 (e0 <= 0 && e1 <= 0 && e2 <= 0))
             {
-                fb.SetPixel(x, y, color);
+                fb.SetPixelUnchecked(x, y, color);
             }
         }
     }
@@ -493,32 +646,77 @@ void Rasterizer::CircleDraw(
     }
 }
 
-// void Rasterizer::SphereRaw3D(
-//     Framebuffer& fb,
-//     const Vertex3D& center,
-//     float thi,
-//     float theta,
-//     int radius,
-//     int diameter,
-//     int sectorCount,
-//     int stackCount,
-//     uint32_t color
-// )
-// {  
 
-//     Vertex3D point;
+void Rasterizer::SphereRaw3D(
+    Framebuffer& fb,
+    const Vertex3D& center,
+    int radius,
+    int sectorCount,
+    int stackCount,
+    const Camera& camera,
+    uint32_t color)
+{
+    // A sphere needs at least three sectors around its middle and two vertical
+    // sections from pole to pole. Avoid generating invalid or empty meshes.
+    if (radius <= 0 || sectorCount < 3 || stackCount < 2)
+    {
+        return;
+    }
 
-//     point.x = (radius * std::cos(thi) * std::cos(theta))
-//     point.y = (radius * std::cos(thi) * std::sin(theta))
-//     point.z = radius * std::sin(thi)
+    const float pi = 3.14159265358979323846f;
+    const float sphereRadius = static_cast<float>(radius);
+    const Vector3D centerVector = {center.x, center.y, center.z};
+    Mesh sphere;
+    sphere.vertices.reserve(static_cast<std::size_t>(stackCount + 1) * (sectorCount + 1));
+    sphere.triangles.reserve(static_cast<std::size_t>(sectorCount) * 2 * (stackCount - 1));
 
-//     float sectorStep = 2 * M_PI/ sectorCount;
-//     float stackStep = M_PI / st;
+    // Generate latitude rings. The duplicate vertex at sectorCount closes the
+    // seam between longitude 0 and longitude 2*pi.
+    for (int stack = 0; stack <= stackCount; ++stack)
+    {
+        const float latitude = -pi / 2.0f + pi * static_cast<float>(stack) / stackCount;
+        const float ringRadius = sphereRadius * std::cos(latitude);
+        const float y = sphereRadius * std::sin(latitude);
+
+        for (int sector = 0; sector <= sectorCount; ++sector)
+        {
+            const float longitude = 2.0f * pi * static_cast<float>(sector) / sectorCount;
+            const Vector3D localVertex = {
+                ringRadius * std::cos(longitude),
+                y,
+                ringRadius * std::sin(longitude)};
+            sphere.vertices.push_back(Vectors::Addition(centerVector, localVertex));
+        }
+    }
+
+    const auto vertexIndex = [sectorCount](int stack, int sector)
+    {
+        return static_cast<std::size_t>(stack * (sectorCount + 1) + sector);
+    };
+
+    // Split each latitude/longitude cell into two outward-facing triangles.
+    // One triangle is omitted at each pole because the duplicated pole points
+    // would otherwise create a degenerate triangle with a zero-length normal.
+    for (int stack = 0; stack < stackCount; ++stack)
+    {
+        for (int sector = 0; sector < sectorCount; ++sector)
+        {
+            const std::size_t topLeft = vertexIndex(stack, sector);
+            const std::size_t topRight = vertexIndex(stack, sector + 1);
+            const std::size_t bottomLeft = vertexIndex(stack + 1, sector);
+            const std::size_t bottomRight = vertexIndex(stack + 1, sector + 1);
+
+            if (stack != 0)
+            {
+                sphere.triangles.push_back({topLeft, bottomLeft, topRight});
+            }
+            if (stack != stackCount - 1)
+            {
+                sphere.triangles.push_back({topRight, bottomLeft, bottomRight});
+            }
+        }
+    }
 
 
-
-    
-
-
-
-// }
+    DrawMesh(fb, sphere, camera, color);
+}
