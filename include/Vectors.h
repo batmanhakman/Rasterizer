@@ -27,5 +27,4 @@ class Vectors
     static float length(const Vector3D& vector);
     static float DotProduct(const Vector3D& vector, const Vector3D& vector2);
     static Vector3D CrossProduct(const Vector3D& vector, const Vector3D& vector2);
-    // ... other code to implement
 };

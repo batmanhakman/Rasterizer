@@ -30,6 +30,9 @@ class Framebuffer
 
     // Set the pixels
     void SetPixel(int x, int y, uint32_t color);
+    // TriangleFill calls this only after clipping its coordinates to the
+    // framebuffer, avoiding a redundant bounds check for every filled pixel.
+    void SetPixelUnchecked(int x, int y, uint32_t color);
 
     // clear colors
     void Clear(uint32_t color);

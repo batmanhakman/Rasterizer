@@ -92,12 +92,10 @@ public:
     static void SphereRaw3D(
         Framebuffer& fb,
         const Vertex3D& center,
-        float thi,
-        float theta,
+        int radius,
         int sectorCount,
         int stackCount,
-        int radius,
-        int diameter,
+        const Camera& camera,
         uint32_t color
     );
     // Draw a square

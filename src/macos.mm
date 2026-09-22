@@ -239,6 +239,17 @@
         camera,
         cubeColor);
 
+    // The sphere uses the same camera, depth ordering, and flat-lighting path
+    // as the other meshes. More sectors/stacks make it rounder at extra cost.
+    Rasterizer::SphereRaw3D(
+        *framebuffer,
+        Vertex3D{450.0f, 0.0f, 450.0f},
+        120,
+        16,
+        8,
+        camera,
+        circleColor);
+
     [self.window.contentView setNeedsDisplay:YES];
 }
 
