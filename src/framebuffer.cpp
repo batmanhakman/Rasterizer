@@ -7,6 +7,8 @@ Framebuffer::Framebuffer(int width, int height)
     this->width = width;
     this->height = height;
 
+    depth = new float[width * height];
+
     // allocate the 1d pixel array
     pixels = new uint32_t[width * height];
 }
@@ -40,6 +42,22 @@ uint32_t* Framebuffer::GetBuffer() const
 {
     return pixels;
 }
+
+float* Framebuffer::GetDepthBuffer()
+{
+    return depth;
+}
+
+void Framebuffer::clearDepth(float value)
+{
+    int totalDepth = width * height;
+
+    for(int i = 0; i < totalDepth; i++)
+    {
+        depth[i] = value;
+    }
+}
+
 
 uint32_t Framebuffer::GetPixel(int x, int y) const
 {

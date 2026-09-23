@@ -1,5 +1,6 @@
 #import <Cocoa/Cocoa.h>
 
+#include "ObjLoader.h"
 #include "Rasterizer.h"
 #include "macos.h"
 
@@ -110,6 +111,7 @@
     Framebuffer* framebuffer;
     RasterizerView* rasterizerView;
     Camera camera;
+    Mesh armadilloMesh;
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification*)notification
@@ -119,6 +121,36 @@
     framebuffer = new Framebuffer(1920, 1080);
     camera = Camera{Vector3D{0.0f, 0.0f, 0.0f}, 0.0f, 0.0f, 500.0f};
 
+    // The executable is expected to run from the directory containing this
+    // file. At this stage the loader reads only the OBJ's v position lines.
+    if (!ObjLoader::LoadVertices("armadillo.obj", armadilloMesh))
+    {
+        // Keep the window open while the loader is being developed. The
+        // process may have a different working directory when launched from
+        // an IDE, so report the problem instead of terminating the app.
+        NSLog(@"Could not load vertex positions from armadillo.obj");
+    }
+    else
+    {
+        NSLog(@"Loaded %lu Armadillo vertices", static_cast<unsigned long>(armadilloMesh.vertices.size()));
+    }
+
+    if(!ObjLoader::LoadFaces("armadillo.obj", armadilloMesh))
+    {
+        NSLog(@"Could not load faces from the obj");
+    }
+    else
+    {
+        NSLog(@"Loaded %lu Armadillo faces", static_cast<unsigned long>(armadilloMesh.faces.size()));
+    }
+
+    // Place the loaded model at the pyramid's world-space position. The OBJ
+    // coordinates are centered near the origin, so translating z by 450 puts
+    // the Armadillo at the same depth as the pyramid.
+    for (Vertex& vertex : armadilloMesh.vertices)
+    {
+        vertex.z += 450.0f;
+    }
     // Clear every pixel first; new[] does not initialize the framebuffer.
     framebuffer->Clear(framebuffer->color(0, 0, 0, 255));
 
@@ -209,6 +241,7 @@
     uint32_t circleColor = framebuffer->color(0, 0, 255, 255);
     uint32_t pyramidColor = framebuffer->color(255, 255, 0, 255);
     uint32_t cubeColor = framebuffer->color(0, 255, 0, 255);
+    uint32_t armadilloColor = framebuffer->color(255, 128, 0, 255);
 
     // Keep the static square and the circle next to each other.
    // Rasterizer::SquareDraw(
@@ -249,6 +282,12 @@
         8,
         camera,
         circleColor);
+
+    // Draw the OBJ mesh after its vertices and faces have been loaded.
+    if (!armadilloMesh.vertices.empty() && !armadilloMesh.faces.empty())
+    {
+        Rasterizer::DrawMesh(*framebuffer, armadilloMesh, camera, armadilloColor);
+    }
 
     [self.window.contentView setNeedsDisplay:YES];
 }

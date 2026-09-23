@@ -38,8 +38,17 @@ class Framebuffer
     void Clear(uint32_t color);
 
 
+
     private:
     int width;
     int height;
     uint32_t* pixels;
+
+    #define DEPTH_BUFFER
+
+    #ifdef DEPTH_BUFFER
+        float* GetDepthBuffer();
+        void clearDepth(float value);
+        float* depth;
+    #endif
 };

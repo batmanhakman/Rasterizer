@@ -8,6 +8,7 @@
 
 #include "Rasterizer.h"
 #include "Vectors.h"
+#include "Mesh.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -42,6 +43,16 @@ Vector3D WorldToCamera(const Vector3D& worldPosition, const Camera& camera)
 Vertex3D ToVertex3D(const Vector3D& vector)
 {
     return Vertex3D{vector.x, vector.y, vector.z};
+}
+
+Vector3D ToVector3D(const Vertex& vertex)
+{
+    return Vector3D{vertex.x, vertex.y, vertex.z};
+}
+
+Vertex ToMeshVertex(const Vector3D& vector)
+{
+    return Vertex{vector.x, vector.y, vector.z};
 }
 } // namespace
 
@@ -330,7 +341,7 @@ void Rasterizer::DrawMesh(
     // system before using the existing perspective projection routine.
     for (std::size_t i = 0; i < mesh.vertices.size(); ++i)
     {
-        const Vector3D cameraSpaceVertex = WorldToCamera(mesh.vertices[i], camera);
+        const Vector3D cameraSpaceVertex = WorldToCamera(ToVector3D(mesh.vertices[i]), camera);
         cameraDepths[i] = cameraSpaceVertex.z;
         if (!ProjectVertex(
                 fb,
@@ -349,31 +360,52 @@ void Rasterizer::DrawMesh(
     // than appearing to be see-through. Average depth is sufficient for the
     // non-intersecting cube and pyramid; a z-buffer is the robust next step
     // for intersecting geometry.
-    std::vector<TriangleIndices> sortedTriangles;
-    sortedTriangles.reserve(mesh.triangles.size());
-    for (const TriangleIndices& triangle : mesh.triangles)
+    std::vector<Face> sortedFaces;
+    sortedFaces.reserve(mesh.faces.size());
+    for (const Face& face : mesh.faces)
     {
-        if (triangle.first < projectedVertices.size() &&
-            triangle.second < projectedVertices.size() &&
-            triangle.third < projectedVertices.size())
+        bool valid = true;
+        for (uint32_t index : face.indices)
         {
-            sortedTriangles.push_back(triangle);
+            if(index >= projectedVertices.size())
+            {
+                valid = false;
+                break;
+            }
+        }
+        if (valid)
+        {
+            sortedFaces.push_back(face);
         }
     }
 
-    std::sort(
-        sortedTriangles.begin(),
-        sortedTriangles.end(),
-        [&](const TriangleIndices& left, const TriangleIndices& right)
-        {
-            const float leftDepth =
-                (cameraDepths[left.first] + cameraDepths[left.second] + cameraDepths[left.third]) / 3.0f;
-            const float rightDepth =
-                (cameraDepths[right.first] + cameraDepths[right.second] + cameraDepths[right.third]) / 3.0f;
-            return leftDepth > rightDepth;
-        });
+std::sort(
+    sortedFaces.begin(),
+    sortedFaces.end(),
+    [&](const Face& left, const Face& right)
+    {
+        float leftDepth = 0.0f;
 
-    for (const TriangleIndices& triangle : sortedTriangles)
+        for (uint32_t index : left.indices)
+        {
+            leftDepth += cameraDepths[index];
+        }
+
+        leftDepth /= static_cast<float>(left.indices.size());
+
+        float rightDepth = 0.0f;
+
+        for (uint32_t index : right.indices)
+        {
+            rightDepth += cameraDepths[index];
+        }
+
+        rightDepth /= static_cast<float>(right.indices.size());
+
+        return leftDepth > rightDepth;
+    });
+
+    for (const Face& face : sortedFaces)
     {
         // TO-DO
         // LIGHTING DEBUG NOTE:
@@ -389,9 +421,9 @@ void Rasterizer::DrawMesh(
         //    triangle.first, triangle.second, and triangle.third. Do lighting
         //    in world space; projected 2D coordinates no longer describe a
         //    face's real orientation.
-        const Vector3D& vertexA = mesh.vertices[triangle.first];
-        const Vector3D& vertexB = mesh.vertices[triangle.second];
-        const Vector3D& vertexC = mesh.vertices[triangle.third];
+        const Vector3D vertexA = ToVector3D(mesh.vertices[face.indices[0]]);
+        const Vector3D vertexB = ToVector3D(mesh.vertices[face.indices[1]]);
+        const Vector3D vertexC = ToVector3D(mesh.vertices[face.indices[2]]);
         // 2. Form two edges from the first vertex to the other two. Their
         //    cross product is the face normal. Normalize that normal by
         //    dividing it by its Vectors::length result. The triangle winding
@@ -402,12 +434,11 @@ void Rasterizer::DrawMesh(
 
         const Vector3D faceNormal = Vectors::CrossProduct(edge1, edge2);
         const float faceNormalLength = Vectors::length(faceNormal);
-        const Vector3D toCamera = Vectors::Subtraction(camera.position, vertexA);
 
-        // Closed, outward-wound meshes do not need their back faces drawn.
-        // Culling them before normalization, lighting, and rasterization
-        // removes roughly half of a sphere's triangle workload.
-        if (faceNormalLength == 0.0f || Vectors::DotProduct(faceNormal, toCamera) <= 0.0f)
+        // OBJ files do not all use the same winding convention. Reject only
+        // degenerate faces for now; keeping both windings makes imported
+        // meshes visible until a mesh-level winding/culling policy is added.
+        if (faceNormalLength == 0.0f)
         {
             continue;
         }
@@ -427,6 +458,10 @@ void Rasterizer::DrawMesh(
         const Vector3D lightDirection = Vectors::Subtraction(lightPoint, vertexA);
 
         const float lightDirectionLength = Vectors::length(lightDirection);
+        if (lightDirectionLength == 0.0f)
+        {
+            continue;
+        }
         const Vector3D normalizedlightDirection = {
             lightDirection.x / lightDirectionLength,
             lightDirection.y / lightDirectionLength,
@@ -451,17 +486,24 @@ void Rasterizer::DrawMesh(
         //    framebuffer.color(...), and pass that shaded color below. Keep
         //    alpha unchanged. Recalculate per triangle for flat lighting.
 
-        uint32_t shadedColor = fb.color(255 * ambientMinimum, 0, 0, 255);
+        uint32_t shadedColor = fb.color(
+            static_cast<uint32_t>(255.0f * ambientMinimum),
+            static_cast<uint32_t>(255.0f * ambientMinimum),
+            static_cast<uint32_t>(255.0f * ambientMinimum),
+            255);
 
+        const uint32_t a = face.indices[0];
+        const uint32_t b = face.indices[1];
+        const uint32_t c = face.indices[2];
         TriangleFill(
             fb,
-            projectedVertices[triangle.first],
-            projectedVertices[triangle.second],
-            projectedVertices[triangle.third],
+            projectedVertices[a],
+            projectedVertices[b],
+            projectedVertices[c],
             shadedColor);
     }
 }
-
+// TO FIX: both cube and pyramid have transparent faces. FIX: IMPLEMENT Z-BUFFERS
 void Rasterizer::Pyramid3DDraw(
     Framebuffer& fb,
     const Vertex3D& center,
@@ -472,11 +514,11 @@ void Rasterizer::Pyramid3DDraw(
     const Vector3D centerVector = {center.x, center.y, center.z};
     const Mesh pyramid = {
         {
-            Vectors::Addition(centerVector, Vector3D{0.0f, -size, 0.0f}),
-            Vectors::Addition(centerVector, Vector3D{-size, size, -size}),
-            Vectors::Addition(centerVector, Vector3D{size, size, -size}),
-            Vectors::Addition(centerVector, Vector3D{size, size, size}),
-            Vectors::Addition(centerVector, Vector3D{-size, size, size})
+            ToMeshVertex(Vectors::Addition(centerVector, Vector3D{0.0f, -size, 0.0f})),
+            ToMeshVertex(Vectors::Addition(centerVector, Vector3D{-size, size, -size})),
+            ToMeshVertex(Vectors::Addition(centerVector, Vector3D{size, size, -size})),
+            ToMeshVertex(Vectors::Addition(centerVector, Vector3D{size, size, size})),
+            ToMeshVertex(Vectors::Addition(centerVector, Vector3D{-size, size, size}))
         },
         {
             {0, 1, 2},
@@ -500,14 +542,14 @@ void Rasterizer::CubeRaw3DDraw(
     const Vector3D centerVector = {center.x, center.y, center.z};
     const Mesh cube = {
         {
-            Vectors::Addition(centerVector, Vector3D{-size, size, -size}),
-            Vectors::Addition(centerVector, Vector3D{size, size, -size}),
-            Vectors::Addition(centerVector, Vector3D{size, size, size}),
-            Vectors::Addition(centerVector, Vector3D{-size, size, size}),
-            Vectors::Addition(centerVector, Vector3D{-size, -size, -size}),
-            Vectors::Addition(centerVector, Vector3D{size, -size, -size}),
-            Vectors::Addition(centerVector, Vector3D{size, -size, size}),
-            Vectors::Addition(centerVector, Vector3D{-size, -size, size})
+            ToMeshVertex(Vectors::Addition(centerVector, Vector3D{-size, size, -size})),
+            ToMeshVertex(Vectors::Addition(centerVector, Vector3D{size, size, -size})),
+            ToMeshVertex(Vectors::Addition(centerVector, Vector3D{size, size, size})),
+            ToMeshVertex(Vectors::Addition(centerVector, Vector3D{-size, size, size})),
+            ToMeshVertex(Vectors::Addition(centerVector, Vector3D{-size, -size, -size})),
+            ToMeshVertex(Vectors::Addition(centerVector, Vector3D{size, -size, -size})),
+            ToMeshVertex(Vectors::Addition(centerVector, Vector3D{size, -size, size})),
+            ToMeshVertex(Vectors::Addition(centerVector, Vector3D{-size, -size, size}))
         },
         {
             {0, 2, 1}, {0, 3, 2}, // top
@@ -668,7 +710,7 @@ void Rasterizer::SphereRaw3D(
     const Vector3D centerVector = {center.x, center.y, center.z};
     Mesh sphere;
     sphere.vertices.reserve(static_cast<std::size_t>(stackCount + 1) * (sectorCount + 1));
-    sphere.triangles.reserve(static_cast<std::size_t>(sectorCount) * 2 * (stackCount - 1));
+    sphere.faces.reserve(static_cast<std::size_t>(sectorCount) * 2 * (stackCount - 1));
 
     // Generate latitude rings. The duplicate vertex at sectorCount closes the
     // seam between longitude 0 and longitude 2*pi.
@@ -685,7 +727,7 @@ void Rasterizer::SphereRaw3D(
                 ringRadius * std::cos(longitude),
                 y,
                 ringRadius * std::sin(longitude)};
-            sphere.vertices.push_back(Vectors::Addition(centerVector, localVertex));
+            sphere.vertices.push_back(ToMeshVertex(Vectors::Addition(centerVector, localVertex)));
         }
     }
 
@@ -708,11 +750,17 @@ void Rasterizer::SphereRaw3D(
 
             if (stack != 0)
             {
-                sphere.triangles.push_back({topLeft, bottomLeft, topRight});
+                sphere.faces.push_back({
+                    static_cast<uint32_t>(topLeft),
+                    static_cast<uint32_t>(bottomLeft),
+                    static_cast<uint32_t>(topRight)});
             }
             if (stack != stackCount - 1)
             {
-                sphere.triangles.push_back({topRight, bottomLeft, bottomRight});
+                sphere.faces.push_back({
+                    static_cast<uint32_t>(topRight),
+                    static_cast<uint32_t>(bottomLeft),
+                    static_cast<uint32_t>(bottomRight)});
             }
         }
     }
