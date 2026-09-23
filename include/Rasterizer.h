@@ -1,5 +1,6 @@
 #pragma once
 #include "framebuffer.h"
+#include "Mesh.h"
 #include "Vectors.h"
 
 #include <cstddef>
@@ -21,18 +22,12 @@ struct Vertex3D
 
 // A triangle refers to three entries in Mesh::vertices. Keeping the vertex
 // data and face topology separate lets every 3D model use the same renderer.
-struct TriangleIndices
-{
-    std::size_t first;
-    std::size_t second;
-    std::size_t third;
-};
-
-struct Mesh
-{
-    std::vector<Vector3D> vertices;
-    std::vector<TriangleIndices> triangles;
-};
+// struct TriangleIndices
+// {
+//     std::size_t first;
+//     std::size_t second;
+//     std::size_t third;
+// }
 
 // The camera looks along +Z when yaw and pitch are zero. Position is in the
 // same world-space units as Mesh vertices.
