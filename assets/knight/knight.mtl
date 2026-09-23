@@ -1,0 +1,47 @@
+newmtl steel
+Ka 0.15 0.15 0.15
+Kd 1.0 1.0 1.0
+Ks 0.62 0.66 0.72
+Ns 88
+illum 2
+map_Kd knight_atlas.png
+
+newmtl gold
+Ka 0.15 0.15 0.15
+Kd 1.0 1.0 1.0
+Ks 0.72 0.55 0.27
+Ns 100
+illum 2
+map_Kd knight_atlas.png
+
+newmtl cloth
+Ka 0.15 0.15 0.15
+Kd 1.0 1.0 1.0
+Ks 0.015 0.015 0.015
+Ns 8
+illum 2
+map_Kd knight_atlas.png
+
+newmtl leather
+Ka 0.15 0.15 0.15
+Kd 1.0 1.0 1.0
+Ks 0.08 0.07 0.06
+Ns 20
+illum 2
+map_Kd knight_atlas.png
+
+newmtl mail
+Ka 0.15 0.15 0.15
+Kd 0.15 0.18 0.21
+Ks 0.08 0.09 0.1
+Ns 20
+illum 2
+map_Kd knight_atlas.png
+
+newmtl shadow
+Ka 0.15 0.15 0.15
+Kd 0.025 0.03 0.035
+Ks 0 0 0
+Ns 8
+illum 2
+map_Kd knight_atlas.png

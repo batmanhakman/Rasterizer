@@ -15,7 +15,7 @@
 
 namespace
 {
-constexpr float kNearClipDistance = 5.0f;
+constexpr float kNearClipDistance = 0.05f;
 
 Vector3D WorldToCamera(const Vector3D& worldPosition, const Camera& camera)
 {
@@ -285,7 +285,7 @@ bool Rasterizer::ProjectVertex(
     // Perspective divides by depth: farther points appear closer to the
     // center and therefore smaller. Keeping a small near distance prevents a
     // vertex almost at the camera from producing impractically huge screen
-    // coordinates. Full near-plane triangle clipping can replace this later.
+    // coordinates. DrawMesh clips triangles against this plane before projection.
     if (vertex.z <= kNearClipDistance)
     {
         return false;
@@ -328,182 +328,212 @@ void Rasterizer::Triangle3DDraw(
     TriangleFill(fb, projected0, projected1, projected2, color);
 }
 
-void Rasterizer::DrawMesh(
-    Framebuffer& fb,
-    const Mesh& mesh,
-    const Camera& camera,
-    uint32_t color)
+namespace
 {
-    std::vector<Vertex2D> projectedVertices(mesh.vertices.size());
-    std::vector<float> cameraDepths(mesh.vertices.size());
+struct ClipVertex
+{
+    Vector3D position;
+    float u = 0.0f;
+    float v = 0.0f;
+    float light = 1.0f;
+    float highlight = 0.0f;
+};
 
-    // Transform every world-space Vector3D into the camera's coordinate
-    // system before using the existing perspective projection routine.
-    for (std::size_t i = 0; i < mesh.vertices.size(); ++i)
+ClipVertex Interpolate(const ClipVertex& a, const ClipVertex& b, float t)
+{
+    return {{a.position.x + (b.position.x-a.position.x)*t,
+             a.position.y + (b.position.y-a.position.y)*t,
+             a.position.z + (b.position.z-a.position.z)*t},
+            a.u+(b.u-a.u)*t, a.v+(b.v-a.v)*t, a.light+(b.light-a.light)*t,
+            a.highlight+(b.highlight-a.highlight)*t};
+}
+
+template<typename Distance>
+void ClipPolygon(std::vector<ClipVertex>& polygon, Distance distance)
+{
+    if (polygon.empty()) return;
+    std::vector<ClipVertex> output;
+    output.reserve(polygon.size()+1);
+    ClipVertex previous = polygon.back();
+    float previousDistance = distance(previous.position);
+    for (const ClipVertex& current : polygon)
     {
-        const Vector3D cameraSpaceVertex = WorldToCamera(ToVector3D(mesh.vertices[i]), camera);
-        cameraDepths[i] = cameraSpaceVertex.z;
-        if (!ProjectVertex(
-                fb,
-                ToVertex3D(cameraSpaceVertex),
-                camera.focalLength,
-                projectedVertices[i]))
+        const float currentDistance = distance(current.position);
+        const bool currentInside = currentDistance >= 0.0f;
+        const bool previousInside = previousDistance >= 0.0f;
+        if (currentInside != previousInside)
         {
-            // This retains the previous behavior: a model is not rendered
-            // unless all of its vertices are in front of the camera.
-            return;
+            const float t = previousDistance / (previousDistance-currentDistance);
+            output.push_back(Interpolate(previous, current, t));
+        }
+        if (currentInside) output.push_back(current);
+        previous = current;
+        previousDistance = currentDistance;
+    }
+    polygon = std::move(output);
+}
+
+// World-space soft key light. The same direction drives diffuse and highlights.
+constexpr Vector3D kKeyLight = {-0.4056f, -0.7100f, -0.5750f};
+
+float Lighting(Vector3D normal)
+{
+    const float length = Vectors::length(normal);
+    if (!(length > 0.0f) || !std::isfinite(length)) return 0.4f;
+    return 0.34f + 0.66f * std::max(0.0f, Vectors::DotProduct(normal, kKeyLight) / length);
+}
+
+float SpecularHighlight(Vector3D normal, Vector3D position, const Camera& camera, float shininess)
+{
+    const float normalLength = Vectors::length(normal);
+    Vector3D view = Vectors::Subtraction(camera.position, position);
+    const float viewLength = Vectors::length(view);
+    if (!(normalLength > 0.0f) || !(viewLength > 0.0f) ||
+        !std::isfinite(normalLength) || !std::isfinite(viewLength)) return 0.0f;
+    normal = Vectors::Scalar(normal, 1.0f / normalLength);
+    view = Vectors::Scalar(view, 1.0f / viewLength);
+    const float lit = Vectors::DotProduct(normal, kKeyLight);
+    // Faces remain two-sided, but their unlit/back-facing sides do not reflect
+    // the key light. Explicit OBJ normals follow the same policy as diffuse.
+    if (lit <= 0.0f || Vectors::DotProduct(normal, view) <= 0.0f) return 0.0f;
+    Vector3D halfway = Vectors::Addition(kKeyLight, view);
+    const float halfLength = Vectors::length(halfway);
+    if (!(halfLength > 0.0f)) return 0.0f;
+    halfway = Vectors::Scalar(halfway, 1.0f / halfLength);
+    return lit * std::pow(std::clamp(Vectors::DotProduct(normal, halfway), 0.0f, 1.0f), shininess);
+}
+
+uint32_t Shade(uint32_t color, const std::array<float, 3>& diffuse, float light,
+               const std::array<float, 3>& specular, float highlight)
+{
+    const auto channel = [&](unsigned shift, size_t index)
+    {
+        float value = float((color >> shift) & 255u) * diffuse[index] * light;
+        // Restrict reflections to the remaining display range instead of
+        // clipping large white patches into the authored diffuse texture.
+        value += std::max(0.0f, 255.0f - value) * 0.55f * specular[index] * highlight;
+        return static_cast<uint32_t>(std::clamp(value, 0.0f, 255.0f));
+    };
+    return 0xff000000u | (channel(16, 0) << 16) | (channel(8, 1) << 8) | channel(0, 2);
+}
+
+void FillProjected(Framebuffer& fb, const ClipVertex& a, const ClipVertex& b,
+                   const ClipVertex& c, float focalLength, const Material* material,
+                   bool textured, uint32_t fallbackColor)
+{
+    struct ScreenVertex { double x, y, inverseZ, uOverZ, vOverZ, lightOverZ, highlightOverZ; };
+    const auto project = [&](const ClipVertex& vertex)
+    {
+        const double inverseZ = 1.0 / vertex.position.z;
+        return ScreenVertex{fb.GetWidth()*0.5 + focalLength*vertex.position.x*inverseZ,
+            fb.GetHeight()*0.5 + focalLength*vertex.position.y*inverseZ, inverseZ,
+            vertex.u*inverseZ, vertex.v*inverseZ, vertex.light*inverseZ, vertex.highlight*inverseZ};
+    };
+    const ScreenVertex p[3] = {project(a), project(b), project(c)};
+    const auto edge = [](const ScreenVertex& a, const ScreenVertex& b, double x, double y)
+    {
+        return (b.x-a.x)*(y-a.y) - (b.y-a.y)*(x-a.x);
+    };
+    const double area = edge(p[0], p[1], p[2].x, p[2].y);
+    if (!std::isfinite(area) || std::abs(area) < 1e-10) return;
+    // Side-plane clipping ensures these bounds stay representable as int.
+    const int minX = static_cast<int>(std::max(0.0, std::floor(std::min({p[0].x,p[1].x,p[2].x}))));
+    const int maxX = static_cast<int>(std::min(double(fb.GetWidth()-1), std::ceil(std::max({p[0].x,p[1].x,p[2].x}))));
+    const int minY = static_cast<int>(std::max(0.0, std::floor(std::min({p[0].y,p[1].y,p[2].y}))));
+    const int maxY = static_cast<int>(std::min(double(fb.GetHeight()-1), std::ceil(std::max({p[0].y,p[1].y,p[2].y}))));
+    const std::array<float, 3> diffuse = material ? material->diffuse : std::array<float,3>{1,1,1};
+    const std::array<float, 3> specular = material ? material->specular : std::array<float,3>{0,0,0};
+    for (int y = minY; y <= maxY; ++y)
+    {
+        for (int x = minX; x <= maxX; ++x)
+        {
+            const double w0 = edge(p[1],p[2],x+0.5,y+0.5) / area;
+            const double w1 = edge(p[2],p[0],x+0.5,y+0.5) / area;
+            const double w2 = 1.0-w0-w1;
+            if (w0 < -1e-9 || w1 < -1e-9 || w2 < -1e-9) continue;
+            const double inverseZ = w0*p[0].inverseZ+w1*p[1].inverseZ+w2*p[2].inverseZ;
+            if (!(inverseZ > 0.0)) continue;
+            const float z = static_cast<float>(1.0 / inverseZ);
+            const float light = static_cast<float>((w0*p[0].lightOverZ+w1*p[1].lightOverZ+w2*p[2].lightOverZ) / inverseZ);
+            const float highlight = static_cast<float>((w0*p[0].highlightOverZ+w1*p[1].highlightOverZ+w2*p[2].highlightOverZ) / inverseZ);
+            uint32_t base = material ? 0xffffffffu : fallbackColor;
+            if (textured)
+            {
+                const float u = static_cast<float>((w0*p[0].uOverZ+w1*p[1].uOverZ+w2*p[2].uOverZ) / inverseZ);
+                const float v = static_cast<float>((w0*p[0].vOverZ+w1*p[1].vOverZ+w2*p[2].vOverZ) / inverseZ);
+                base = material->texture.Sample(u, v);
+            }
+            fb.SetPixelDepthUnchecked(x, y, z, Shade(base, diffuse, light, specular, highlight));
         }
     }
+}
+} // namespace
 
-    // The framebuffer has no depth buffer. Draw the triangles that are
-    // farther from the camera first, so nearer faces paint over them rather
-    // than appearing to be see-through. Average depth is sufficient for the
-    // non-intersecting cube and pyramid; a z-buffer is the robust next step
-    // for intersecting geometry.
-    std::vector<Face> sortedFaces;
-    sortedFaces.reserve(mesh.faces.size());
+void Rasterizer::DrawMesh(Framebuffer& fb, const Mesh& mesh, const Camera& camera, uint32_t color)
+{
+    if (!(camera.focalLength > 0.0f) || !std::isfinite(camera.focalLength)) return;
+    std::vector<Vector3D> cameraVertices;
+    cameraVertices.reserve(mesh.vertices.size());
+    for (const Vertex& vertex : mesh.vertices)
+        cameraVertices.push_back(WorldToCamera(ToVector3D(vertex), camera));
+    const float halfWidth = fb.GetWidth() / (2.0f*camera.focalLength);
+    const float halfHeight = fb.GetHeight() / (2.0f*camera.focalLength);
     for (const Face& face : mesh.faces)
     {
         bool valid = true;
         for (uint32_t index : face.indices)
         {
-            if(index >= projectedVertices.size())
+            if (index >= mesh.vertices.size()) { valid = false; break; }
+            const auto& p = cameraVertices[index];
+            if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z)) { valid = false; break; }
+        }
+        if (!valid) continue;
+        const Vector3D a = ToVector3D(mesh.vertices[face.indices[0]]);
+        const Vector3D b = ToVector3D(mesh.vertices[face.indices[1]]);
+        const Vector3D c = ToVector3D(mesh.vertices[face.indices[2]]);
+        const Vector3D normal = Vectors::CrossProduct(Vectors::Subtraction(b,a), Vectors::Subtraction(c,a));
+        if (!(Vectors::length(normal) > 1e-10f)) continue;
+        const Material* material = face.materialIndex >= 0 && static_cast<size_t>(face.materialIndex) < mesh.materials.size()
+            ? &mesh.materials[face.materialIndex] : nullptr;
+        bool textured = material && !material->texture.Empty();
+        for (uint32_t uvIndex : face.texcoordIndices)
+            textured = textured && uvIndex < mesh.texcoords.size();
+        const float flatLight = Lighting(normal);
+        const bool reflective = material && std::any_of(material->specular.begin(), material->specular.end(),
+            [](float channel) { return channel > 0.0f; });
+        std::vector<ClipVertex> polygon;
+        polygon.reserve(8);
+        for (size_t i = 0; i < 3; ++i)
+        {
+            ClipVertex vertex{cameraVertices[face.indices[i]], 0, 0, flatLight};
+            if (textured)
             {
-                valid = false;
-                break;
+                const auto& uv = mesh.texcoords[face.texcoordIndices[i]];
+                vertex.u = uv.u;
+                vertex.v = uv.v;
             }
+            Vector3D shadingNormal = normal;
+            if (face.normalIndices[i] < mesh.normals.size())
+            {
+                shadingNormal = ToVector3D(mesh.normals[face.normalIndices[i]]);
+                vertex.light = Lighting(shadingNormal);
+            }
+            if (reflective)
+                vertex.highlight = SpecularHighlight(shadingNormal,
+                    ToVector3D(mesh.vertices[face.indices[i]]), camera, material->shininess);
+            polygon.push_back(vertex);
         }
-        if (valid)
-        {
-            sortedFaces.push_back(face);
-        }
-    }
-
-std::sort(
-    sortedFaces.begin(),
-    sortedFaces.end(),
-    [&](const Face& left, const Face& right)
-    {
-        float leftDepth = 0.0f;
-
-        for (uint32_t index : left.indices)
-        {
-            leftDepth += cameraDepths[index];
-        }
-
-        leftDepth /= static_cast<float>(left.indices.size());
-
-        float rightDepth = 0.0f;
-
-        for (uint32_t index : right.indices)
-        {
-            rightDepth += cameraDepths[index];
-        }
-
-        rightDepth /= static_cast<float>(right.indices.size());
-
-        return leftDepth > rightDepth;
-    });
-
-    for (const Face& face : sortedFaces)
-    {
-        // TO-DO
-        // LIGHTING DEBUG NOTE:
-        // A face that looks transparent is usually receiving brightness 0 and
-        // therefore being drawn black against the black background. Before
-        // changing projection code, temporarily use a small ambient minimum
-        // (for example, 0.1) to prove the triangle is still being rasterized.
-        // If it reappears, inspect its winding: CrossProduct(B - A, C - A)
-        // must point outward. The cube's face indices below are now wound
-        // consistently for lighting; use that same order for sphere faces.
-        // LIGHTING ROADMAP (implement this before calling TriangleFill):
-        // 1. Fetch the three *world-space* vertices from mesh.vertices using
-        //    triangle.first, triangle.second, and triangle.third. Do lighting
-        //    in world space; projected 2D coordinates no longer describe a
-        //    face's real orientation.
-        const Vector3D vertexA = ToVector3D(mesh.vertices[face.indices[0]]);
-        const Vector3D vertexB = ToVector3D(mesh.vertices[face.indices[1]]);
-        const Vector3D vertexC = ToVector3D(mesh.vertices[face.indices[2]]);
-        // 2. Form two edges from the first vertex to the other two. Their
-        //    cross product is the face normal. Normalize that normal by
-        //    dividing it by its Vectors::length result. The triangle winding
-        //    determines which way it faces: reverse the cross-product order
-        //    (or the triangle indices) if a lit face is unexpectedly dark.
-        const Vector3D edge1 = Vectors::Subtraction(vertexB, vertexA);
-        const Vector3D edge2 = Vectors::Subtraction(vertexC, vertexA);
-
-        const Vector3D faceNormal = Vectors::CrossProduct(edge1, edge2);
-        const float faceNormalLength = Vectors::length(faceNormal);
-
-        // OBJ files do not all use the same winding convention. Reject only
-        // degenerate faces for now; keeping both windings makes imported
-        // meshes visible until a mesh-level winding/culling policy is added.
-        if (faceNormalLength == 0.0f)
-        {
-            continue;
-        }
-
-        // Normalized Normal
-        const Vector3D normalizedfaceNormal = {
-            faceNormal.x / faceNormalLength,
-            faceNormal.y / faceNormalLength,
-            faceNormal.z / faceNormalLength
-        };
-
-
-        // 3. Store a point-light position (for example, as a Vector3D near
-        //    the camera). Subtract the first face vertex from that position to
-        //    get a direction *toward* the light, then normalize it as well.
-        const Vector3D lightPoint = camera.position;
-        const Vector3D lightDirection = Vectors::Subtraction(lightPoint, vertexA);
-
-        const float lightDirectionLength = Vectors::length(lightDirection);
-        if (lightDirectionLength == 0.0f)
-        {
-            continue;
-        }
-        const Vector3D normalizedlightDirection = {
-            lightDirection.x / lightDirectionLength,
-            lightDirection.y / lightDirectionLength,
-            lightDirection.z / lightDirectionLength
-        };
-        // 4. The dot product of the normalized normal and light direction is
-        //    the Lambert brightness: 1 means directly lit, 0 means sideways,
-        //    and negative means the light is behind the face. Clamp it to at
-        //    least zero, or to a small ambient value so dark faces remain
-        //    visible. Optional: multiply it by distance falloff from the
-        //    point light for a more realistic result.
-        float brightness = Vectors::DotProduct(normalizedfaceNormal, normalizedlightDirection);
-
-        if(brightness < 0)
-        {
-            brightness = 0;
-        };
-
-        float ambientMinimum = std::max(0.1f, brightness);
-        // 5. Multiply the base color's red, green, and blue channels by that
-        //    brightness, clamp each channel to [0, 255], rebuild a pixel with
-        //    framebuffer.color(...), and pass that shaded color below. Keep
-        //    alpha unchanged. Recalculate per triangle for flat lighting.
-
-        uint32_t shadedColor = fb.color(
-            static_cast<uint32_t>(255.0f * ambientMinimum),
-            static_cast<uint32_t>(255.0f * ambientMinimum),
-            static_cast<uint32_t>(255.0f * ambientMinimum),
-            255);
-
-        const uint32_t a = face.indices[0];
-        const uint32_t b = face.indices[1];
-        const uint32_t c = face.indices[2];
-        TriangleFill(
-            fb,
-            projectedVertices[a],
-            projectedVertices[b],
-            projectedVertices[c],
-            shadedColor);
+        // Clip camera-space positions and attributes before dividing by Z.
+        ClipPolygon(polygon, [](Vector3D p) { return p.z-kNearClipDistance; });
+        ClipPolygon(polygon, [=](Vector3D p) { return p.x+p.z*halfWidth; });
+        ClipPolygon(polygon, [=](Vector3D p) { return p.z*halfWidth-p.x; });
+        ClipPolygon(polygon, [=](Vector3D p) { return p.y+p.z*halfHeight; });
+        ClipPolygon(polygon, [=](Vector3D p) { return p.z*halfHeight-p.y; });
+        for (size_t i = 1; i+1 < polygon.size(); ++i)
+            FillProjected(fb,polygon[0],polygon[i],polygon[i+1],camera.focalLength,material,textured,color);
     }
 }
-// TO FIX: both cube and pyramid have transparent faces. FIX: IMPLEMENT Z-BUFFERS
+
 void Rasterizer::Pyramid3DDraw(
     Framebuffer& fb,
     const Vertex3D& center,

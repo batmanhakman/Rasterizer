@@ -1,13 +1,14 @@
 #pragma once
-
 #include "Mesh.h"
-
+#include <filesystem>
 #include <string>
 
 namespace ObjLoader
 {
-// Loads only vertex-position lines from an OBJ file.
-// Returns false when the file cannot be opened or a vertex line is malformed.
+// Load positions, UVs, normals, triangulated convex polygons, and MTL diffuse
+// colors/PNG textures. Failure leaves mesh unchanged and gives a diagnostic.
+bool Load(const std::filesystem::path& path, Mesh& mesh, std::string& error);
+// Compatibility entry points; use Load for material/UV-aware imports.
 bool LoadVertices(const std::string& path, Mesh& mesh);
 bool LoadFaces(const std::string& path, Mesh& mesh);
 }

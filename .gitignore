@@ -1,4 +1,20 @@
-
-*.obj
-
+# Build products (Wavefront models under assets are source files).
+/build*/
+/dist/
+/artifacts/
+/.tools/
 *.o
+*.obj
+!assets/**/*.obj
+*.exe
+*.pdb
+*.ilk
+*.idb
+*.pch
+*.app/
+__pycache__/
+.DS_Store
+
+# Blender backup files (the editable .blend source is tracked).
+*.blend1
+*.blend2
