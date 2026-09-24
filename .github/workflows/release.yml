@@ -21,7 +21,7 @@ jobs:
       - name: Build Rasterizer
         shell: cmd
         run: |
-          cl /EHsc /std:c++17 /Iinclude main.cpp src\window.cpp src\framebuffer.cpp src\Rasterizer.cpp src\Vectors.cpp User32.lib Gdi32.lib /Fe:Rasterizer.exe
+          cl /EHsc /std:c++17 /Iinclude main.cpp src\window.cpp src\framebuffer.cpp src\Rasterizer.cpp src\Vectors.cpp src\ObjLoader.cpp User32.lib Gdi32.lib /Fe:Rasterizer.exe
 
       - name: Check EXE
         shell: cmd
@@ -32,7 +32,9 @@ jobs:
       - name: Upload EXE to Release
         uses: softprops/action-gh-release@v2
         with:
-          files: Rasterizer.exe
+          files: |
+            Rasterizer.exe
+            armadillo.obj
 
   build-macos:
     runs-on: macos-latest
@@ -44,7 +46,7 @@ jobs:
       - name: Build Rasterizer
         run: |
           clang++ -std=c++17 -fobjc-arc -Iinclude \
-            main.cpp src/macos.mm src/framebuffer.cpp src/Rasterizer.cpp src/Vectors.cpp \
+            main.cpp src/macos.mm src/framebuffer.cpp src/Rasterizer.cpp src/Vectors.cpp src/ObjLoader.cpp \
             -framework Cocoa -o Rasterizer
 
       - name: Upload macOS binary to Release

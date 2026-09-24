@@ -8,7 +8,7 @@
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
-HWND InitWindow(HINSTANCE hInstance, int nCmdShow)
+HWND InitWindow(HINSTANCE hInstance, int)
 {
     // Register the window class
     const wchar_t CLASS_NAME[] = L"DefaultProgramName";
@@ -41,7 +41,6 @@ HWND InitWindow(HINSTANCE hInstance, int nCmdShow)
         nullptr
     );
 
-    ShowWindow(hwnd, nCmdShow);
     return hwnd;
 }
 
