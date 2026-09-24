@@ -36,7 +36,8 @@ for line_number, line in enumerate(path.read_text(encoding='utf-8-sig').splitlin
         triangles.append(corners)
 assert len(triangles)>100, 'No usable model geometry'
 assert all(len(v)==3 for v in positions+normals), 'Invalid vector dimensions'
-assert all(len(uv)>=2 and 0<=uv[0]<=1 and 0<=uv[1]<=1 for uv in texcoords), 'Invalid atlas UVs'
+assert all(len(uv)>=2 for uv in texcoords), 'Invalid UV dimensions'
+# Atlas regions stay inset; the standalone chainmail texture intentionally repeats.
 assert all(abs(sum(x*x for x in n)-1)<0.002 for n in normals), 'Non-unit normal'
 lo=[min(v[k] for v in positions) for k in range(3)]
 hi=[max(v[k] for v in positions) for k in range(3)]

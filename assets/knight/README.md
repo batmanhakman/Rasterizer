@@ -1,20 +1,21 @@
-# Crimson Sentinel
+# Gilded Warden
 
-An original stylized medieval knight created for this rasterizer, with a fitted bascinet, curved plate armor, articulated arms and hands, shaped sabatons, a draped crimson cape and split tabard, a longsword, and a curved heater shield with a fleur-de-lis relief.
+An original reference-inspired knight authored in Blender for this software rasterizer. Its armor combines a crested closed helmet, narrow antique gold tracery, a pointed cuirass, layered V-shaped gorget, domed shoulder shells, engraved leaf-shaped tassets, fitted gauntlets, and articulated sabatons. Tan arming garments, leather straps, and exposed chainmail connect the armor in a relaxed, unarmed pose.
 
 ## Files
 
-- `knight.obj`: 29,760 triangles, 15,302 deduplicated positions, UV coordinates and surface normals, across 179 named components. Geometry is triangulated for the rasterizer and other OBJ importers.
-- `knight.mtl`: six materials (steel, gold, cloth, leather, and two dark joint/visor variants) referring to the shared atlas.
-- `knight_atlas.png`: 1,254 × 1,254 RGBA color texture atlas, with opaque pixels. Top left: steel; top right: engraved gold; bottom left: crimson cloth; bottom right: dark leather.
+- `knight.obj`: 120,154 triangles, 60,972 deduplicated positions, and 370 named components, with independent per-corner UVs and normals.
+- `knight.mtl`: six materials: `steel`, `gold`, `cloth`, `leather`, `mail`, and `shadow`. Diffuse maps use relative paths; `Ks` and `Ns` describe their different highlights.
+- `knight_atlas.png`: a 1,254 × 1,254 RGBA atlas. Top left: neutral worn steel; top right: antique brass/gold; bottom left: tan woven cloth; bottom right: dark umber leather.
+- `knight_mail.png`: a separate 1,254 × 1,254 RGBA texture of repeating interlinked chainmail.
 
-The soles sit at approximately Y=0.032; the model is approximately 1.90 units tall. Y is up, and the knight faces negative Z. The viewer centers and fits the asset automatically. Parts are separate overlapping surfaces suitable for a static display model; no skeleton or animation is included.
+Y is up in the OBJ, and the knight faces negative Z. The figure is approximately 2.02 units tall, from sole to crest. The viewer centers and fits the model automatically. Components are separate overlapping armor and garment surfaces. The model is intended for static display and includes no skeleton or animation.
 
-UV islands reuse the four material swatches and stay inset from the quadrant boundaries. Keep all three files in the same directory, or update the relative texture/material references after moving them. No other texture download is needed.
+The four atlas regions stay inset from quadrant boundaries. The standalone mail texture can repeat across its surfaces. Keep the OBJ, MTL, and both PNG files together, or update their relative references after moving them. The runtime asset is self-contained.
 
 ## Edit or regenerate in Blender
 
-Open [the editable Blender project](../../source/knight.blend). Its packed texture, contour meshes, modifiers, materials, camera, and lighting are included. The Blender scene uses Z-up; the export script converts it to the OBJ convention described above.
+Open [the editable Blender project](../../source/knight.blend). Both textures are packed, and the named components, materials, modifiers, studio camera, and lighting remain editable. The Blender scene uses Z-up; the export converts it to the OBJ convention above.
 
 From the repository root:
 
@@ -23,12 +24,12 @@ blender --background --python tools/create_knight_blender.py
 python tools/validate_knight.py
 ```
 
-The Blender script regenerates the project and exported OBJ/MTL and creates a studio preview under `build/`. The color atlas is an authored input and is left untouched. Blender is not required to run or build the viewer.
+The builder uses `tools/knight_parts/common.py`, `body.py`, `helmet.py`, and `limbs.py`. It saves the project and OBJ/MTL export and renders previews under `build/`. Both texture images are authored inputs and remain untouched. Blender is not required to run or build the viewer.
 
-![Knight rendered in Blender](../../docs/knight-blender.png)
+![Gilded Warden rendered in Blender](../../docs/knight-blender.png)
 
-## Texture creation
+![Helmet and armor portrait rendered in Blender](../../docs/knight-portrait.png)
 
-The atlas was created with the built-in image generation tool, then refined to reduce coarse fabric weave. No reference asset or downloaded model was used. The final refinement prompt was:
+## Provenance
 
-> Edit this game texture atlas. Keep EXACTLY the same four equal square quadrants and boundary positions: top left steel, top right gold, bottom left crimson cloth, bottom right dark leather. Replace the overly coarse, carpet-like material treatment with elegant restrained hand-painted fantasy game ALBEDO materials. Surface detail should be extremely subtle and fine, largely smooth from this viewing distance. Top left: smooth clean cold silver-blue forged armor steel, NOT rock/concrete/hammered stone; very fine sparse hairline scuffs, no pits, no dark cracks, no cloudy noise. Top right: smooth warm pale brushed brass, very subtle patina, delicate low-contrast fine ornamental engraved lines, NO big central ornaments, NO heavy grain. Bottom left: smooth deep burgundy/crimson fabric, nearly solid color with exceedingly fine subdued fabric grain visible only close up, NO chunky weave, NO loops, NO carpet, NO knit, NO upholstery, NO visible grid. Bottom right: smooth deep charcoal brown leather, faint fine grain, NO large pebbles, NO heavy wrinkling, NO cobblestone pattern. All surfaces flat evenly lit texture swatches for UV mapping, no baked highlights/shadows, no objects, no labels, no gap or border. Use sophisticated muted saturated colors. This is a texture sheet for metal armor and fine cloth, not a material macro photograph. Preserve exact 2x2 atlas layout.
+The geometry was authored specifically for this project, using a supplied image as a visual design reference. No downloaded 3D model was used, and the reference image is not included in the repository. The two texture images were created with the image generation tool. See [texture generation prompts](texture-prompts.md) for the exact final prompts and texture layout.

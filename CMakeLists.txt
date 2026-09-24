@@ -55,7 +55,7 @@ install(TARGETS rasterizer_render RUNTIME DESTINATION .)
 install(DIRECTORY assets/ DESTINATION assets)
 install(DIRECTORY source/ DESTINATION source FILES_MATCHING PATTERN "*.blend" PATTERN "*.md")
 install(FILES README.md DESTINATION .)
-install(FILES docs/knight-preview.png docs/knight-blender.png DESTINATION docs)
+install(FILES docs/knight-preview.png docs/knight-blender.png docs/knight-portrait.png DESTINATION docs)
 install(FILES third_party/README.md DESTINATION third_party)
 install(FILES third_party/LICENSE.stb DESTINATION licenses OPTIONAL)
 

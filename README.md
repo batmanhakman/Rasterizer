@@ -1,8 +1,8 @@
-# Rasterizer — Crimson Sentinel
+# Rasterizer — Gilded Warden
 
-A small C++17 software rasterizer with native Windows and macOS viewers. The bundled **Crimson Sentinel** knight is a fully textured Wavefront OBJ built in Blender: fitted curved steel armor, gold trim, a crimson cape and tabard, sword, and heraldic shield.
+A small C++17 software rasterizer with native Windows and macOS viewers. The bundled **Gilded Warden** is a fully textured Wavefront OBJ authored in Blender from a visual design reference: ornate dark steel armor, antique gold tracery, tan arming garments, chainmail, and articulated gauntlets and sabatons. The unarmed figure stands in a relaxed pose.
 
-![Crimson Sentinel rendered by this software rasterizer](docs/knight-preview.png)
+![Gilded Warden rendered by this software rasterizer](docs/knight-preview.png)
 
 ## Run on Windows
 
@@ -55,7 +55,9 @@ The macOS application uses Cocoa and the same scene, textures, and renderer as W
 
 ## Use the knight in another application
 
-Import `assets/knight/knight.obj` with its neighboring `knight.mtl` and `knight_atlas.png` files. The OBJ is triangulated, includes UVs and surface normals, and uses standard `map_Kd` material references. The editable [Blender source](source/README.md) is included at `source/knight.blend`. See [asset notes](assets/knight/README.md) for layout, scale, and regeneration instructions.
+Import `assets/knight/knight.obj` with its neighboring `knight.mtl`, `knight_atlas.png`, and `knight_mail.png` files. The OBJ is triangulated, includes UVs and surface normals, and uses standard `map_Kd` material references. The editable [Blender source](source/README.md), with both images packed, is included at `source/knight.blend`. See [asset notes](assets/knight/README.md) for layout, scale, and regeneration instructions.
+
+![Gilded Warden armor detail rendered in Blender](docs/knight-portrait.png)
 
 ## Render without a window
 
