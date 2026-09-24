@@ -26,6 +26,48 @@ jobs:
         working-directory: build
         run: cpack -C Release
       - name: Attach ZIP to release
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build Rasterizer
+        shell: cmd
+        run: |
+          cl /EHsc /std:c++17 /Iinclude main.cpp src\window.cpp src\framebuffer.cpp src\Rasterizer.cpp src\Vectors.cpp src\ObjLoader.cpp User32.lib Gdi32.lib /Fe:Rasterizer.exe
+
+      - name: Check EXE
+        shell: cmd
+        run: |
+          dir
+          dir Rasterizer.exe
+
+      - name: Upload EXE to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            Rasterizer.exe
+            armadillo.obj
+
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Rasterizer
+        run: |
+          clang++ -std=c++17 -fobjc-arc -Iinclude \
+            main.cpp src/macos.mm src/framebuffer.cpp src/Rasterizer.cpp src/Vectors.cpp src/ObjLoader.cpp \
+            -framework Cocoa -o Rasterizer
+
+      - name: Upload macOS binary to Release
         uses: softprops/action-gh-release@v2
         with:
           files: build/*.zip

@@ -6,6 +6,7 @@
 #include <string>
 
 namespace
+HWND InitWindow(HINSTANCE hInstance, int)
 {
 struct Application
 {
@@ -27,6 +28,7 @@ std::wstring Wide(const std::string& text)
 void ShowError(HWND window, const std::string& message)
 {
     MessageBoxW(window, Wide(message).c_str(), L"Rasterizer - unable to continue", MB_OK | MB_ICONERROR);
+    return hwnd;
 }
 
 void SetKey(SceneInput& input, WPARAM key, bool pressed)
