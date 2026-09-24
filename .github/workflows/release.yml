@@ -1,4 +1,4 @@
-name: Build Release
+name: Build release packages
 
 on:
   release:
@@ -8,6 +8,24 @@ permissions:
   contents: write
 
 jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build
+        run: cmake --build build --config Release --parallel
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Package executable, knight, and textures
+        working-directory: build
+        run: cpack -C Release
+      - name: Attach ZIP to release
   build:
     runs-on: windows-latest
 
@@ -52,4 +70,5 @@ jobs:
       - name: Upload macOS binary to Release
         uses: softprops/action-gh-release@v2
         with:
-          files: Rasterizer
+          files: build/*.zip
+          fail_on_unmatched_files: true

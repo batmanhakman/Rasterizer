@@ -64,7 +64,7 @@ public:
         float focalLength,
         uint32_t color);
     // Transform a world-space mesh into camera space, project it, and fill
-    // every indexed triangle in its declared order.
+    // every indexed triangle with near-plane clipping, depth testing, and textures.
     static void DrawMesh(
         Framebuffer& fb,
         const Mesh& mesh,

@@ -1,7 +1,9 @@
 #pragma once
-#pragma comment(lib, "User32.lib")
-#pragma comment(lib, "Gdi32.lib")
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
-
-HWND InitWindow(HINSTANCE hInstance, int nCmdShow);
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+int RunWindowsApplication(HINSTANCE instance, int showCommand);

@@ -1,6 +1,8 @@
-#include "Rasterizer.h"
-
 #ifdef _WIN32
+#include "window.h"
+int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
+{
+    return RunWindowsApplication(instance, showCommand);
 #ifndef UNICODE
 #define UNICODE
 #endif
@@ -90,9 +92,5 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
 }
 #else
 #include "macos.h"
-
-int main()
-{
-    return RunApplication();
-}
+int main() { return RunApplication(); }
 #endif

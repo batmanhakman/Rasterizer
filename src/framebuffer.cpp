@@ -1,87 +1,46 @@
-#include <iostream>
 #include "framebuffer.h"
+#include <algorithm>
+#include <limits>
+#include <stdexcept>
 
-Framebuffer::Framebuffer(int width, int height)
-{   
-    // saving width and height parameters
-    this->width = width;
-    this->height = height;
-
-    depth = new float[width * height];
-
-    // allocate the 1d pixel array
-    pixels = new uint32_t[width * height];
-}
-
-Framebuffer::~Framebuffer()
-{   
-    // pixels needs cleaning up as it does not go away once the framebuffer is over
-    delete[] pixels;
-    // reset pixels to nothing
-    pixels = nullptr;
+Framebuffer::Framebuffer(int width, int height) : width(width), height(height)
+{
+    if (width <= 0 || height <= 0 || width > 16384 || height > 16384)
+        throw std::invalid_argument("Framebuffer dimensions must be between 1 and 16384");
+    pixels.resize(static_cast<size_t>(width) * height);
+    depth.resize(pixels.size());
+    Clear(0xff000000u);
 }
 
 void Framebuffer::SetPixel(int x, int y, uint32_t color)
-{   
+{
     if (x >= 0 && x < width && y >= 0 && y < height)
-    {
-        // calculate 1D index
-        int index = (y * width) + x;
-        // write color to memory
-        pixels[index] = color;
-    }
+        SetPixelUnchecked(x, y, color);
 }
 
 void Framebuffer::SetPixelUnchecked(int x, int y, uint32_t color)
 {
-    pixels[y * width + x] = color;
+    pixels[static_cast<size_t>(y) * width + x] = color;
 }
 
-
-uint32_t* Framebuffer::GetBuffer() const
+void Framebuffer::SetPixelDepthUnchecked(int x, int y, float z, uint32_t color)
 {
-    return pixels;
-}
-
-float* Framebuffer::GetDepthBuffer()
-{
-    return depth;
-}
-
-void Framebuffer::clearDepth(float value)
-{
-    int totalDepth = width * height;
-
-    for(int i = 0; i < totalDepth; i++)
+    const size_t index = static_cast<size_t>(y) * width + x;
+    if (z < depth[index])
     {
-        depth[i] = value;
+        depth[index] = z;
+        pixels[index] = color;
     }
 }
-
 
 uint32_t Framebuffer::GetPixel(int x, int y) const
 {
-    if (x >= 0 && x < width && y >= 0 && y < height)
-    {
-        // calculate 1D Array
-        int index = (y * width) + x;
-
-        // return pixel value
-        return pixels[index];
-    }
-
-    // if out of bounds, return default color
-    return 0;
-} 
+    return x >= 0 && x < width && y >= 0 && y < height
+        ? pixels[static_cast<size_t>(y) * width + x] : 0;
+}
 
 void Framebuffer::Clear(uint32_t color)
 {
-    // calculate total number of pixels.
-    int totalPixels = width * height;
-
-    // starts at pixel 0 and clears all pixels until it reaches the value of totalPixels.
-    for (int i = 0; i < totalPixels; i++)
-    {
-        pixels[i] = color;
-    }
+    std::fill(pixels.begin(), pixels.end(), color);
+    std::fill(depth.begin(), depth.end(), std::numeric_limits<float>::infinity());
 }

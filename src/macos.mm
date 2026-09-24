@@ -1,312 +1,203 @@
 #import <Cocoa/Cocoa.h>
-
-#include "ObjLoader.h"
-#include "Rasterizer.h"
+#include "Scene.h"
 #include "macos.h"
+#include <chrono>
+#include <exception>
 
 @interface RasterizerView : NSView
 {
-    Framebuffer* framebuffer;
-    BOOL keyStates[128];
+    Scene* scene;
+    SceneInput input;
+    NSPoint previousMouse;
 }
-
-- (instancetype)initWithFramebuffer:(Framebuffer*)framebuffer;
-- (BOOL)isKeyPressed:(unsigned short)keyCode;
+- (instancetype)initWithScene:(Scene*)newScene;
+- (SceneInput)sceneInput;
+- (void)clearInput;
 @end
 
 @implementation RasterizerView
-
-- (instancetype)initWithFramebuffer:(Framebuffer*)newFramebuffer
+- (instancetype)initWithScene:(Scene*)newScene
 {
-    self = [super initWithFrame:NSMakeRect(0, 0, newFramebuffer->GetWidth(), newFramebuffer->GetHeight())];
-    if (self != nil)
-    {
-        framebuffer = newFramebuffer;
-    }
+    self = [super initWithFrame:NSMakeRect(0, 0, 1000, 760)];
+    if (self) scene = newScene;
     return self;
 }
-
-- (void)dealloc
-{
-    delete framebuffer;
-}
-
+- (BOOL)acceptsFirstResponder { return YES; }
+- (BOOL)isOpaque { return YES; }
+- (SceneInput)sceneInput { return input; }
+- (void)clearInput { input = {}; }
 - (void)drawRect:(NSRect)dirtyRect
 {
     (void)dirtyRect;
-
-    // The framebuffer stores pixels as 0xRRGGBBAA. Core Graphics reads those
-    // bytes as red, green, blue, and alpha because of the bitmap options below.
+    const Framebuffer& frame = scene->Frame();
     CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-    CGContextRef bitmapContext = CGBitmapContextCreate(
-        framebuffer->GetBuffer(),
-        framebuffer->GetWidth(),
-        framebuffer->GetHeight(),
-        8,
-        framebuffer->GetWidth() * sizeof(uint32_t),
-        colorSpace,
-        kCGImageAlphaNoneSkipLast | kCGBitmapByteOrder32Big);
-
-    if (bitmapContext == nullptr)
+    // Pixels are 0xAARRGGBB: in memory, little-endian bytes are B,G,R,A.
+    CGContextRef bitmap = CGBitmapContextCreate(frame.GetBuffer(), frame.GetWidth(), frame.GetHeight(),
+        8, frame.GetWidth() * sizeof(uint32_t), colorSpace,
+        kCGImageAlphaNoneSkipFirst | kCGBitmapByteOrder32Little);
+    if (bitmap)
     {
-        CGColorSpaceRelease(colorSpace);
-        return;
+        CGImageRef image = CGBitmapContextCreateImage(bitmap);
+        CGContextRef context = [[NSGraphicsContext currentContext] CGContext];
+        if (image && context) CGContextDrawImage(context, self.bounds, image);
+        if (image) CGImageRelease(image);
+        CGContextRelease(bitmap);
     }
-
-    // Create an image from our software-rendered pixels, then draw that image
-    // into Cocoa's current window context. Drawing into bitmapContext itself
-    // would only draw back into the offscreen framebuffer.
-    CGImageRef image = CGBitmapContextCreateImage(bitmapContext);
-    CGContextRef windowContext = [[NSGraphicsContext currentContext] CGContext];
-    if (image != nullptr && windowContext != nullptr)
-    {
-        CGContextDrawImage(windowContext, self.bounds, image);
-    }
-
-    if (image != nullptr)
-    {
-        CGImageRelease(image);
-    }
-    CGContextRelease(bitmapContext);
     CGColorSpaceRelease(colorSpace);
 }
-
-- (BOOL)acceptsFirstResponder
+- (void)setKey:(unsigned short)key pressed:(bool)pressed
 {
-    return YES;
+    switch (key)
+    {
+    case 123: case 0: input.left = pressed; break;
+    case 124: case 2: input.right = pressed; break;
+    case 126: input.up = pressed; break;
+    case 125: input.down = pressed; break;
+    case 13: input.zoomIn = pressed; break;
+    case 1: input.zoomOut = pressed; break;
+    }
 }
-
 - (void)keyDown:(NSEvent*)event
 {
-    const unsigned short keyCode = event.keyCode;
-    if (keyCode < 128)
-    {
-        keyStates[keyCode] = YES;
-    }
+    [self setKey:event.keyCode pressed:true];
+    if (event.keyCode == 15) scene->Reset();
+    if (event.keyCode == 53) [NSApp terminate:nil];
 }
-
-- (void)keyUp:(NSEvent*)event
+- (void)keyUp:(NSEvent*)event { [self setKey:event.keyCode pressed:false]; }
+- (BOOL)resignFirstResponder
 {
-    const unsigned short keyCode = event.keyCode;
-    if (keyCode < 128)
-    {
-        keyStates[keyCode] = NO;
-    }
+    [self clearInput];
+    return [super resignFirstResponder];
 }
-
-- (BOOL)isKeyPressed:(unsigned short)keyCode
+- (void)mouseDown:(NSEvent*)event
 {
-    return keyCode < 128 && keyStates[keyCode];
+    [self.window makeFirstResponder:self];
+    previousMouse = [self convertPoint:event.locationInWindow fromView:nil];
 }
-
+- (void)mouseDragged:(NSEvent*)event
+{
+    const NSPoint mouse = [self convertPoint:event.locationInWindow fromView:nil];
+    scene->Orbit(static_cast<float>(mouse.x - previousMouse.x) * 0.006f,
+                 static_cast<float>(previousMouse.y - mouse.y) * 0.006f);
+    previousMouse = mouse;
+}
+- (void)scrollWheel:(NSEvent*)event
+{
+    scene->Zoom(static_cast<float>(event.scrollingDeltaY) * (event.hasPreciseScrollingDeltas ? 0.08f : 1.0f));
+}
 @end
 
-@interface RasterizerAppDelegate : NSObject <NSApplicationDelegate>
+@interface RasterizerAppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate>
 @property(nonatomic, strong) NSWindow* window;
 @property(nonatomic, strong) NSTimer* animationTimer;
+@property(nonatomic, assign) int exitCode;
 @end
 
 @implementation RasterizerAppDelegate
 {
-    Framebuffer* framebuffer;
+    Scene* scene;
     RasterizerView* rasterizerView;
-    Camera camera;
-    Mesh armadilloMesh;
+    std::chrono::steady_clock::time_point previousTick;
 }
-
+- (void)dealloc { delete scene; }
+- (void)showError:(const std::string&)message
+{
+    [self.animationTimer invalidate];
+    self.exitCode = 1;
+    NSAlert* alert = [[NSAlert alloc] init];
+    alert.messageText = @"Rasterizer could not continue";
+    alert.informativeText = [NSString stringWithUTF8String:message.c_str()] ?: @"Unknown error";
+    [alert runModal];
+    [NSApp stop:nil];
+    [NSApp abortModal];
+}
 - (void)applicationDidFinishLaunching:(NSNotification*)notification
 {
     (void)notification;
-
-    framebuffer = new Framebuffer(1920, 1080);
-    camera = Camera{Vector3D{0.0f, 0.0f, 0.0f}, 0.0f, 0.0f, 500.0f};
-
-    // The executable is expected to run from the directory containing this
-    // file. At this stage the loader reads only the OBJ's v position lines.
-    if (!ObjLoader::LoadVertices("armadillo.obj", armadilloMesh))
+    try
     {
-        // Keep the window open while the loader is being developed. The
-        // process may have a different working directory when launched from
-        // an IDE, so report the problem instead of terminating the app.
-        NSLog(@"Could not load vertex positions from armadillo.obj");
+        scene = new Scene;
+        std::string error;
+        if (!scene->Load(Scene::DefaultModelPath(), error))
+        {
+            [self showError:"Could not load the knight. Keep the assets folder beside Rasterizer.\n\n" + error];
+            return;
+        }
+        scene->Render();
+        self.window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 1000, 760)
+            styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
+            backing:NSBackingStoreBuffered defer:NO];
+        self.window.title = @"Rasterizer | Knight - drag / arrows: orbit  W/S / wheel: zoom  R: reset  Esc: quit";
+        self.window.minSize = NSMakeSize(320, 260);
+        self.window.delegate = self;
+        rasterizerView = [[RasterizerView alloc] initWithScene:scene];
+        self.window.contentView = rasterizerView;
+        [self.window center];
+        [self.window makeKeyAndOrderFront:nil];
+        [self.window makeFirstResponder:rasterizerView];
+        previousTick = std::chrono::steady_clock::now();
+        self.animationTimer = [NSTimer scheduledTimerWithTimeInterval:(1.0 / 60.0)
+            target:self selector:@selector(update:) userInfo:nil repeats:YES];
+        [[NSRunLoop mainRunLoop] addTimer:self.animationTimer forMode:NSRunLoopCommonModes];
     }
-    else
-    {
-        NSLog(@"Loaded %lu Armadillo vertices", static_cast<unsigned long>(armadilloMesh.vertices.size()));
-    }
-
-    if(!ObjLoader::LoadFaces("armadillo.obj", armadilloMesh))
-    {
-        NSLog(@"Could not load faces from the obj");
-    }
-    else
-    {
-        NSLog(@"Loaded %lu Armadillo faces", static_cast<unsigned long>(armadilloMesh.faces.size()));
-    }
-
-    // Place the loaded model at the pyramid's world-space position. The OBJ
-    // coordinates are centered near the origin, so translating z by 450 puts
-    // the Armadillo at the same depth as the pyramid.
-    for (Vertex& vertex : armadilloMesh.vertices)
-    {
-        vertex.z += 450.0f;
-    }
-    // Clear every pixel first; new[] does not initialize the framebuffer.
-    framebuffer->Clear(framebuffer->color(0, 0, 0, 255));
-
-    NSRect frame = NSMakeRect(0, 0, framebuffer->GetWidth(), framebuffer->GetHeight());
-    self.window = [[NSWindow alloc]
-        initWithContentRect:frame
-                  styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
-                             NSWindowStyleMaskResizable)
-                    backing:NSBackingStoreBuffered
-                      defer:NO];
-    self.window.title = @"Rasterizer";
-    rasterizerView = [[RasterizerView alloc] initWithFramebuffer:framebuffer];
-    self.window.contentView = rasterizerView;
-    [self.window center];
-    [self.window makeKeyAndOrderFront:nil];
-    [self.window makeFirstResponder:rasterizerView];
-
-    // Run the simulation at approximately 60 frames per second.
-    self.animationTimer = [NSTimer scheduledTimerWithTimeInterval:(1.0 / 60.0)
-                                                            target:self
-                                                          selector:@selector(update:)
-                                                          userInfo:nil
-                                                           repeats:YES];
-    [self update:self.animationTimer];
+    catch (const std::exception& error) { [self showError:error.what()]; }
 }
-
 - (void)update:(NSTimer*)timer
 {
     (void)timer;
-
-    // Use a fixed step to convert held keys into consistent camera movement.
-    const float deltaTime = 1.0f / 60.0f;
-    const float moveSpeed = 300.0f;
-    const float lookSpeed = 1.5f;
-    const float moveDistance = moveSpeed * deltaTime;
-
-    // W/S move along the horizontal viewing direction; A/D strafe. Arrow
-    // keys adjust yaw and pitch, allowing the camera to look around.
-    const Vector3D forward = {std::sin(camera.yaw), 0.0f, std::cos(camera.yaw)};
-    const Vector3D right = {std::cos(camera.yaw), 0.0f, -std::sin(camera.yaw)};
-    const Vector3D downward = {0.0f, -1.0f, 0.0f};
-    const Vector3D up = {0.0f, 1.0f, 0.0f};
-    if ([rasterizerView isKeyPressed:13]) // W
+    try
     {
-        camera.position = Vectors::Addition(camera.position, Vectors::Scalar(forward, moveDistance));
+        const auto now = std::chrono::steady_clock::now();
+        const float seconds = std::chrono::duration<float>(now - previousTick).count();
+        previousTick = now;
+        if (self.window.miniaturized) return;
+        const NSSize size = rasterizerView.bounds.size;
+        scene->Resize(static_cast<int>(size.width), static_cast<int>(size.height));
+        scene->Update([rasterizerView sceneInput], seconds);
+        scene->Render();
+        [rasterizerView setNeedsDisplay:YES];
     }
-    if ([rasterizerView isKeyPressed:1]) // S
-    {
-        camera.position = Vectors::Subtraction(camera.position, Vectors::Scalar(forward, moveDistance));
-    }
-    if ([rasterizerView isKeyPressed:12]) // Q
-    {
-        camera.position = Vectors::Subtraction(camera.position, Vectors::Scalar(downward, moveDistance));
-    }
-    if ([rasterizerView isKeyPressed:14]) // E
-    {
-        camera.position = Vectors::Subtraction(camera.position, Vectors::Scalar(up, moveDistance));
-    }
-    if ([rasterizerView isKeyPressed:0]) // A
-    {
-        camera.position = Vectors::Subtraction(camera.position, Vectors::Scalar(right, moveDistance));
-    }
-    if ([rasterizerView isKeyPressed:2]) // D
-    {
-        camera.position = Vectors::Addition(camera.position, Vectors::Scalar(right, moveDistance));
-    }
-    if ([rasterizerView isKeyPressed:123]) // Left arrow
-    {
-        camera.yaw -= lookSpeed * deltaTime;
-    }
-    if ([rasterizerView isKeyPressed:124]) // Right arrow
-    {
-        camera.yaw += lookSpeed * deltaTime;
-    }
-    if ([rasterizerView isKeyPressed:126]) // Up arrow
-    {
-        camera.pitch = std::min(camera.pitch + lookSpeed * deltaTime, 1.4f);
-    }
-    if ([rasterizerView isKeyPressed:125]) // Down arrow
-    {
-        camera.pitch = std::max(camera.pitch - lookSpeed * deltaTime, -1.4f);
-    }
-
-    // Redraw the entire frame: clear the old position, draw the new position,
-    // then ask Cocoa to call drawRect: with the updated framebuffer.
-    framebuffer->Clear(framebuffer->color(20, 24, 40, 255));
-    uint32_t squareColor = framebuffer->color(0, 255, 0, 255);
-    uint32_t circleColor = framebuffer->color(0, 0, 255, 255);
-    uint32_t pyramidColor = framebuffer->color(255, 255, 0, 255);
-    uint32_t cubeColor = framebuffer->color(0, 255, 0, 255);
-    uint32_t armadilloColor = framebuffer->color(255, 128, 0, 255);
-
-    // Keep the static square and the circle next to each other.
-   // Rasterizer::SquareDraw(
-      //  *framebuffer,
-       // Vertex2D{180, 120},
-        //Vertex2D{380, 120},
-        //Vertex2D{380, 320},
-        //Vertex2D{180, 320},
-       // squareColor);
-   // Rasterizer::CircleDraw(
-       // *framebuffer,
-       // Vertex2D{680, 220},
-       // 120,
-       // circleColor);
-    // The models are stationary in world space. The camera supplies all view
-    // movement and orientation, so neither shape has a spin angle anymore.
-    Rasterizer::Pyramid3DDraw(
-        *framebuffer,
-        Vertex3D{0.0f, 0.0f, 450.0f},
-        120.0f,
-        camera,
-        pyramidColor);
-
-    Rasterizer::CubeRaw3DDraw(
-        *framebuffer,
-        Vertex3D{-450.0f, 0.0f, 450.0f},
-        120,
-        camera,
-        cubeColor);
-
-    // The sphere uses the same camera, depth ordering, and flat-lighting path
-    // as the other meshes. More sectors/stacks make it rounder at extra cost.
-    Rasterizer::SphereRaw3D(
-        *framebuffer,
-        Vertex3D{450.0f, 0.0f, 450.0f},
-        120,
-        16,
-        8,
-        camera,
-        circleColor);
-
-    // Draw the OBJ mesh after its vertices and faces have been loaded.
-    if (!armadilloMesh.vertices.empty() && !armadilloMesh.faces.empty())
-    {
-        Rasterizer::DrawMesh(*framebuffer, armadilloMesh, camera, armadilloColor);
-    }
-
-    [self.window.contentView setNeedsDisplay:YES];
+    catch (const std::exception& error) { [self showError:error.what()]; }
 }
-
+- (void)applicationDidResignActive:(NSNotification*)notification
+{
+    (void)notification;
+    [rasterizerView clearInput];
+}
+- (void)windowDidResignKey:(NSNotification*)notification
+{
+    (void)notification;
+    [rasterizerView clearInput];
+}
+- (void)applicationWillTerminate:(NSNotification*)notification
+{
+    (void)notification;
+    [self.animationTimer invalidate];
+}
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication*)sender
 {
     (void)sender;
     return YES;
 }
-
 @end
 
 int RunApplication()
 {
-    NSApplication* application = [NSApplication sharedApplication];
-    RasterizerAppDelegate* delegate = [[RasterizerAppDelegate alloc] init];
-    application.delegate = delegate;
-    [application setActivationPolicy:NSApplicationActivationPolicyRegular];
-    [application activateIgnoringOtherApps:YES];
-    [application run];
-    return 0;
+    @autoreleasepool
+    {
+        NSApplication* application = [NSApplication sharedApplication];
+        RasterizerAppDelegate* delegate = [[RasterizerAppDelegate alloc] init];
+        application.delegate = delegate;
+        [application setActivationPolicy:NSApplicationActivationPolicyRegular];
+        NSMenu* menuBar = [[NSMenu alloc] init];
+        NSMenuItem* applicationItem = [[NSMenuItem alloc] init];
+        NSMenu* applicationMenu = [[NSMenu alloc] init];
+        [applicationMenu addItemWithTitle:@"Quit Rasterizer" action:@selector(terminate:) keyEquivalent:@"q"];
+        applicationItem.submenu = applicationMenu;
+        [menuBar addItem:applicationItem];
+        application.mainMenu = menuBar;
+        [application activateIgnoringOtherApps:YES];
+        [application run];
+        return delegate.exitCode;
+    }
 }
